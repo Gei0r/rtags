@@ -1709,7 +1709,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
         if (clang_Cursor_isVariadic(cursor))
             c.flags |= Symbol::Variadic;
 #endif
-#if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 33)
+#if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 35)
         if (clang_Cursor_isFunctionInlined(cursor))
             c.flags |= Symbol::InlineFunction;
 #endif
