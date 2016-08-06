@@ -4,15 +4,15 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 include(ExternalProject)
 
-if (RTAGS_BUILD_CLANG)
+if (NOT RTAGS_BUILD_CLANG)
     if (RTAGS_NO_INSTALL)
         set(CLANG_INSTALL_PATH ${CMAKE_CURRENT_BINARY_DIR}/llvmclang-prefix/install)
     else ()
         set(CLANG_INSTALL_PATH ${CMAKE_INSTALL_PREFIX}/rtags-llvmclang)
     endif ()
     ExternalProject_Add(llvmclang
-        DOWNLOAD_COMMAND ${PROJECT_SOURCE_DIR}/scripts/getclang.sh
-        SOURCE_DIR llvmclang-prefix/src/llvm-3.8.1.src
+        DOWNLOAD_COMMAND ${PROJECT_SOURCE_DIR}/scripts/getclang.sh 3.8.1
+        SOURCE_DIR llvmclang-prefix/src/llvm
         CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${CLANG_INSTALL_PATH} -DLLVM_BUILD_TOOLS=0
         LOG_DOWNLOAD 1            # Wrap download in script to log output
         LOG_UPDATE 1              # Wrap update in script to log output
