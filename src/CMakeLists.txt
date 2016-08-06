@@ -13,7 +13,7 @@ if (RTAGS_BUILD_CLANG)
     ExternalProject_Add(llvmclang
         DOWNLOAD_COMMAND ${PROJECT_SOURCE_DIR}/scripts/getclang.sh
         SOURCE_DIR llvmclang-prefix/src/llvm-3.8.1.src
-        CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${CLANG_INSTALL_PATH}
+        CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${CLANG_INSTALL_PATH} -DLLVM_BUILD_TOOLS=0
         LOG_DOWNLOAD 1            # Wrap download in script to log output
         LOG_UPDATE 1              # Wrap update in script to log output
         LOG_CONFIGURE 1           # Wrap configure in script to log output
@@ -24,6 +24,7 @@ if (RTAGS_BUILD_CLANG)
     set(LIBCLANG_LIBRARIES "${CLANG_INSTALL_PATH}/lib/libclang${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(LIBCLANG_CXXFLAGS "-I${CLANG_INSTALL_PATH}/include -fPIC  -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS")
     set(LIBCLANG_LIBDIR "${CLANG_INSTALL_PATH}/lib")
+    add_definitions("-DCLANG_INCLUDE=${CLANG_INSTALL_PATH}/include/c++/v1")
 endif ()
 
 
@@ -151,9 +152,6 @@ if (RTAGS_COTIRE)
     set_target_properties(rtags PROPERTIES COTIRE_ADD_UNITY_BUILD FALSE)
     cotire(rtags)
 endif ()
-if (RTAGS_BUILD_CLANG AND NOT RTAGS_NO_INSTALL)
-    add_dependencies(rtags llvmclang)
-endif ()
 
 include_directories(
     ${CMAKE_CURRENT_LIST_DIR}
@@ -186,23 +184,14 @@ endif ()
 # RCT_LIBRARIES and stdc++ library must be at the end
 set(RTAGS_LIBRARIES ${RTAGS_LIBRARIES} -lstdc++ ${RCT_LIBRARIES})
 add_executable(rc rc.cpp)
-if (RTAGS_BUILD_CLANG AND NOT RTAGS_NO_INSTALL)
-    add_dependencies(rc llvmclang)
-endif ()
 target_link_libraries(rc ${RTAGS_LIBRARIES})
 
 add_executable(rdm rdm.cpp)
-if (RTAGS_BUILD_CLANG AND NOT RTAGS_NO_INSTALL)
-    add_dependencies(rdm llvmclang)
-endif ()
 target_link_libraries(rdm ${RTAGS_LIBRARIES})
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 add_executable(rp rp.cpp)
-if (RTAGS_BUILD_CLANG AND NOT RTAGS_NO_INSTALL)
-    add_dependencies(rp llvmclang)
-endif ()
 target_link_libraries(rp ${RTAGS_LIBRARIES})
 
 if (CYGWIN)
