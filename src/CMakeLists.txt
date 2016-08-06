@@ -5,10 +5,16 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 include(ExternalProject)
 
 if (RTAGS_BUILD_CLANG)
+    if (RTAGS_NO_INSTALL)
+        set(CLANG_INSTALL_PATH ${CMAKE_CURRENT_BINARY_DIR}/llvmclang-prefix/install)
+    else ()
+        set(CLANG_INSTALL_PATH ${CMAKE_INSTALL_PREFIX}/rtags-llvmclang)
+    endif ()
     ExternalProject_Add(llvmclang
         DOWNLOAD_COMMAND ${PROJECT_SOURCE_DIR}/scripts/getclang.sh
         SOURCE_DIR llvmclang-prefix/src/llvm-3.8.1.src
-        CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/llvmclang-prefix/install
+        CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${CLANG_INSTALL_PATH}
+        BUILD_COMMAND echo building
         LOG_DOWNLOAD 1            # Wrap download in script to log output
         LOG_UPDATE 1              # Wrap update in script to log output
         LOG_CONFIGURE 1           # Wrap configure in script to log output
@@ -16,9 +22,9 @@ if (RTAGS_BUILD_CLANG)
         LOG_TEST 1                # Wrap test in script to log output
         LOG_INSTALL 1             # Wrap install in script to log output
         )
-    set(LIBCLANG_LIBRARIES "-Lllvmclang-prefix/src/llvmclang-build/lib/" "-lclang")
-    set(LIBCLANG_CXXFLAGS "-Illvmclang-prefix/src/llvm-3.8.1.src/include -Illvmclang-prefix/src/llvmclang-build/include -fPIC  -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS")
-    set(LIBCLANG_LIBDIR "llvmclang-prefix/src/llvmclang-build/lib")
+    set(LIBCLANG_LIBRARIES "-L${CLANG_INSTALL_PATH}/lib" "-lclang")
+    set(LIBCLANG_CXXFLAGS "-I${CLANG_INSTALL_PATH}include -fPIC  -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS")
+    set(LIBCLANG_LIBDIR "${CLANG_INSTALL_PATH}/lib")
 endif ()
 
 
