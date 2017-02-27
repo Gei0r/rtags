@@ -17,15 +17,12 @@
 #define FileMap_h
 
 #include <assert.h>
-#include <fcntl.h>
-#include <sys/file.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include <functional>
 #include <limits>
 
 #include "Location.h"
 #include "rct/Serializer.h"
+#include "rct/MemoryMappedFile.h"
 
 template <typename T> inline static int compare(const T &l, const T &r)
 {
@@ -51,83 +48,33 @@ class FileMap
 {
 public:
     FileMap()
-        : mPointer(0), mSize(0), mCount(0), mValuesOffset(0), mFD(-1), mOptions(0)
+        : mCount(0), mValuesOffset(0), mOptions(0)
     {}
 
-    ~FileMap()
+    void init()
     {
-        if (mFD != -1) {
-            assert(mPointer);
-            munmap(const_cast<char*>(mPointer), mSize);
-            if (!(mOptions & NoLock))
-                lock(mFD, Unlock);
-            int ret;
-            eintrwrap(ret, close(mFD));
-        }
-    }
-
-    void init(const char *pointer, uint32_t size)
-    {
-        mPointer = pointer;
-        mSize = size;
-        memcpy(&mCount, mPointer, sizeof(uint32_t));
-        memcpy(&mValuesOffset, mPointer + sizeof(uint32_t), sizeof(uint32_t));
+        memcpy(&mCount, mFile.filePtr(), sizeof(uint32_t));
+        memcpy(&mValuesOffset, mFile.filePtr<char>() + sizeof(uint32_t), sizeof(uint32_t));
     }
 
     enum Options {
         None = 0x0,
         NoLock = 0x1
     };
-    bool load(const Path &path, uint32_t options, String *error = 0)
+    bool load(const Path &path, uint32_t options, String *error=0)
     {
-        eintrwrap(mFD, open(path.constData(), O_RDONLY));
-        if (mFD == -1) {
-            if (error) {
-                *error = Rct::strerror();
-                *error << " " << __LINE__;
-            }
-            return false;
-        }
-        if (!(options & NoLock) && !lock(mFD, Read)) {
-            if (error) {
-                *error = Rct::strerror();
-                *error << " " << __LINE__;
-            }
+        (void) error;
+        typedef MemoryMappedFile MMF; // shorter name
+        const MMF::LockType lck = !(options & NoLock) ? MMF::DO_LOCK : MMF::DONT_LOCK;
 
-            close(mFD);
-            mFD = -1;
-            return false;
-        }
-
-        struct stat st;
-        if (fstat(mFD, &st)) {
-            if (error) {
-                *error = Rct::strerror();
-                *error << " " << __LINE__;
-            }
-            lock(mFD, Unlock);
-            int ret;
-            eintrwrap(ret, close(mFD));
-            mFD = -1;
-            return false;
-        }
-
-        const char *pointer = static_cast<const char*>(mmap(0, st.st_size, PROT_READ, MAP_PRIVATE, mFD, 0));
-        // error() << errno;//  << mPointer;
-        if (pointer == MAP_FAILED) {
-            if (error) {
-                *error = Rct::strerror();
-                *error << " " << __LINE__;
-            }
-            lock(mFD, Unlock);
-            int ret;
-            eintrwrap(ret, close(mFD));
-            mFD = -1;
+        if(!mFile.open(path, MemoryMappedFile::READ_ONLY, lck))
+        {
+            if(error) *error = "Could not map file";
             return false;
         }
 
         mOptions = options;
-        init(pointer, st.st_size);
+        init();
         return true;
     }
 
@@ -237,55 +184,43 @@ public:
     }
     static size_t write(const Path &path, const Map<Key, Value> &map, uint32_t options)
     {
-        int fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
-        if (fd == -1) {
-            if (!Path::mkdir(path.parentDir(), Path::Recursive))
-                return 0;
-            fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
-            if (fd == -1)
-                return 0;
-        }
-        if (!(options & NoLock) && !lock(fd, Write)) {
-            ::close(fd);
-            return 0;
-        }
-        const String data = encode(map);
-        bool ok = ::ftruncate(fd, data.size()) != -1;
-        if (!ok) {
-            if (!(options & NoLock))
-                lock(fd, Unlock);
-            ::close(fd);
-            return 0;
-        }
+        // int fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
+        // if (fd == -1) {
+        //     if (!Path::mkdir(path.parentDir(), Path::Recursive))
+        //         return 0;
+        //     fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
+        //     if (fd == -1)
+        //         return 0;
+        // }
+        // if (!(options & NoLock) && !lock(fd, Write)) {
+        //     ::close(fd);
+        //     return 0;
+        // }
+        // const String data = encode(map);
+        // bool ok = ::ftruncate(fd, data.size()) != -1;
+        // if (!ok) {
+        //     if (!(options & NoLock))
+        //         lock(fd, Unlock);
+        //     ::close(fd);
+        //     return 0;
+        // }
 
-        ok = ::write(fd, data.constData(), data.size()) == static_cast<ssize_t>(data.size());
-        if (!(options & NoLock))
-            ok = lock(fd, Unlock) && ok;
+        // ok = ::write(fd, data.constData(), data.size()) == static_cast<ssize_t>(data.size());
+        // if (!(options & NoLock))
+        //     ok = lock(fd, Unlock) && ok;
 
-        ::close(fd);
-        if (!ok)
-            unlink(path.constData());
-        return ok ? data.size() : 0;
+        // ::close(fd);
+        // if (!ok)
+        //     unlink(path.constData());
+        // return ok ? data.size() : 0;
+        return 0;
     }
 private:
-    enum Mode {
-        Read = F_RDLCK,
-        Write = F_WRLCK,
-        Unlock = F_UNLCK
-    };
-    static bool lock(int fd, Mode mode)
+    const char *valuesSegment() const { return mFile.filePtr<char>() + mValuesOffset; }
+    const char *keysSegment() const
     {
-        struct flock fl;
-        memset(&fl, 0, sizeof(fl));
-        fl.l_type = mode;
-        fl.l_whence = SEEK_SET;
-        fl.l_pid = getpid();
-        int ret;
-        eintrwrap(ret, fcntl(fd, F_SETLKW, &fl));
-        return ret != -1;
+        return mFile.filePtr<char>() + (sizeof(uint32_t) * 2);
     }
-    const char *valuesSegment() const { return mPointer + mValuesOffset; }
-    const char *keysSegment() const { return mPointer + (sizeof(uint32_t) * 2); }
 
     template <typename T>
     inline T read(const char *base, uint32_t index) const
@@ -297,17 +232,15 @@ private:
         }
         uint32_t offset;
         memcpy(&offset, base + (sizeof(uint32_t) * index), sizeof(offset));
-        Deserializer deserializer(mPointer + offset, INT_MAX);
+        Deserializer deserializer(mFile.filePtr<char>() + offset, INT_MAX);
         T t;
         deserializer >> t;
         return t;
     }
 
-    const char *mPointer;
-    uint32_t mSize;
+    MemoryMappedFile mFile;
     uint32_t mCount;
     uint32_t mValuesOffset;
-    int mFD;
     uint32_t mOptions;
 };
 
