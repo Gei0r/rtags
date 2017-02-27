@@ -154,12 +154,14 @@ bool ClangIndexer::exec(const String &data)
 
     const uint64_t parseTime = Rct::currentTimeMs();
 
+#ifndef _WIN32
     if (niceValue != INT_MIN) {
         errno = 0;
         if (nice(niceValue) == -1) {
             error() << "Failed to nice rp" << Rct::strerror();
         }
     }
+#endif
 
     if (mSourceFile.isEmpty()) {
         error("No sourcefile");

@@ -30,12 +30,6 @@ endif ()
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/RTagsVersion.h.in" "${CMAKE_CURRENT_BINARY_DIR}/include/RTagsVersion.h")
 
-# Treat MSYS as Cygwin
-if (MSYS)
-    set(CYGWIN 1)
-    set(CMAKE_SYSTEM_NAME "CYGWIN")
-endif ()
-
 # Set RPATH when installing to a custom (non-system) directory
 list(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
 if ("${isSystemDir}" STREQUAL "-1")
