@@ -23,6 +23,7 @@
 #include "Location.h"
 #include "rct/Serializer.h"
 #include "rct/MemoryMappedFile.h"
+#include "rct/WindowsUnicodeConversion.h"
 
 template <typename T> inline static int compare(const T &l, const T &r)
 {
@@ -182,40 +183,123 @@ public:
         }
         return out;
     }
+
+    /**
+     * Write the FileMap to the specified file, overwriting all of its content.
+     */
     static size_t write(const Path &path, const Map<Key, Value> &map, uint32_t options)
     {
-        // int fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
-        // if (fd == -1) {
-        //     if (!Path::mkdir(path.parentDir(), Path::Recursive))
-        //         return 0;
-        //     fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
-        //     if (fd == -1)
-        //         return 0;
-        // }
-        // if (!(options & NoLock) && !lock(fd, Write)) {
-        //     ::close(fd);
-        //     return 0;
-        // }
-        // const String data = encode(map);
-        // bool ok = ::ftruncate(fd, data.size()) != -1;
-        // if (!ok) {
-        //     if (!(options & NoLock))
-        //         lock(fd, Unlock);
-        //     ::close(fd);
-        //     return 0;
-        // }
+#ifdef _WIN32
+        const DWORD share = (!(options & NoLock)) ?
+            0 : (FILE_SHARE_READ | FILE_SHARE_WRITE);
+        HANDLE fd = CreateFileW(Utf8To16(path.nullTerminated()),
+                                (GENERIC_WRITE), share, NULL,
 
-        // ok = ::write(fd, data.constData(), data.size()) == static_cast<ssize_t>(data.size());
-        // if (!(options & NoLock))
-        //     ok = lock(fd, Unlock) && ok;
+                                // If the file does not exist, it is created.
+                                // If the file already exists, it is truncated.
+                                CREATE_ALWAYS,
 
-        // ::close(fd);
-        // if (!ok)
-        //     unlink(path.constData());
-        // return ok ? data.size() : 0;
-        return 0;
+                                FILE_ATTRIBUTE_NORMAL, NULL);
+
+        if(fd == INVALID_HANDLE_VALUE)
+        {
+            // could not open file. Maybe the parent dir does not exist?
+            if (!Path::mkdir(path.parentDir(), Path::Recursive)) {
+                // couldn't create parent dir either :(
+                return 0;
+            }
+
+            // Parent dir creation was successful. Try to open again...
+            fd = CreateFileW(Utf8To16(path.nullTerminated()), GENERIC_WRITE, share,
+                             NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if(fd == INVALID_HANDLE_VALUE)
+            {
+                // still no luck. Might also be because the file is locked
+                // by someone else.
+                return 0;
+            }
+        }
+
+        // We don't need to set a lock explicitly, because this already happened
+        // in CreateFile().
+
+        // build data to write in memory
+        const String data = encode(map);
+
+        // We don't need to explicitly truncate the file, because this was done
+        // with the CREATE_ALWAYS flag in the call to CreateFile().
+
+        // Now, we can write the data to file.
+        DWORD numBytesWritten;
+        bool ok = WriteFile(fd, data.constData(), data.size(), &numBytesWritten,
+                            NULL);
+        if(ok && numBytesWritten != data.size()) ok = false;
+
+        CloseHandle(fd);
+
+        if(!ok)
+        {
+            // Delete the file on failure.
+            path.rm();
+        }
+
+        return ok ? data.size() : 0;
+#else
+        // try to open the file
+        int fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
+        if (fd == -1) {
+            // could not open file. Maybe the parent dir does not exist?
+            if (!Path::mkdir(path.parentDir(), Path::Recursive)) {
+                // couldn't create parent dir either :(
+                return 0;
+            }
+
+            // Parent dir creation was successful. Try to open again...
+            fd = open(path.constData(), O_RDWR|O_CREAT, 0644);
+            if (fd == -1) {
+                // Still no luck
+                return 0;
+            }
+        }
+
+        // Try to aquire a write lock if requested
+        if (!(options & NoLock)) {
+            // use same lock as in rct's MemoryMappedFile
+            int lockRes;
+            eintrwrap(lockRes, flock(fd, LOCK_EX | LOCK_NB));
+            if(lockRes == -1)
+            {
+                close(fd);
+                return 0;
+            }
+        }
+
+        // build data to write in memory
+        const String data = encode(map);
+
+        bool ok = ::ftruncate(fd, data.size()) != -1;
+        if (!ok) {
+            // could not truncate the file. Unwind file locking and creation.
+            if (!(options & NoLock))
+                lock(fd, Unlock);
+            ::close(fd);
+            return 0;
+        }
+
+        // Now, we can write the data to file.
+        ok = ::write(fd, data.constData(), data.size()) == static_cast<ssize_t>(data.size());
+
+        // If there is a lock, it is automatically released when closing fd.
+        ::close(fd);
+
+        // Delete the file on failure
+        if (!ok)
+            unlink(path.constData());
+        return ok ? data.size() : 0;
+#endif
     }
 private:
+
     const char *valuesSegment() const { return mFile.filePtr<char>() + mValuesOffset; }
     const char *keysSegment() const
     {
