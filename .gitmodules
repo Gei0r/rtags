@@ -1,7 +1,7 @@
 [submodule "src/rct"]
         path = src/rct
-        url = https://github.com/Andersbakken/rct
-        branch = master
+        url = https://github.com/Gei0r/rct
+        branch = win
 [submodule "src/selene"]
 	path = src/selene
 	url = https://github.com/jeremyong/Selene.git
