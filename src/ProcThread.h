@@ -26,7 +26,7 @@
 #include <time.h>
 #include "Source.h"
 
-#if defined(OS_Linux) || defined(OS_FreeBSD) || 1
+#if (!defined _WIN32) && (defined(OS_Linux) || defined(OS_FreeBSD) || 1)
 #define RTAGS_HAS_PROC
 #endif
 
