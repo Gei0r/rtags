@@ -189,6 +189,10 @@ else ()
         COMPILE_FLAGS "-Wno-unused-but-set-parameter -Wno-unused-parameter -Wno-unused-variable -ftemplate-depth=2000 -Wno-cast-qual -Wno-shadow")
 endif()
 
+if (CMAKE_SYSTEM_NAME MATCHES "Windows")
+  set(RTAGS_LIBRARIES ${RTAGS_LIBRARIES} -lShlwapi)
+endif()
+
 # RCT_LIBRARIES and stdc++ library must be at the end
 set(RTAGS_LIBRARIES ${RTAGS_LIBRARIES} -lstdc++ ${RCT_LIBRARIES})
 add_executable(rc rc.cpp)

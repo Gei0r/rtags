@@ -16,7 +16,9 @@
 #include "RClient.h"
 
 #include <stdio.h>
-#include <sys/ioctl.h>
+#ifndef _WIN32
+#  include <sys/ioctl.h>
+#endif
 
 #include "FileMap.h"
 #include "IndexMessage.h"
@@ -322,11 +324,15 @@ RClient::RClient()
       mLogLevel(LogLevel::Error), mTcpPort(0), mGuessFlags(false),
       mTerminalWidth(-1)
 {
+#ifdef _WIN32
+    mTerminalWidth = 80;
+#else
     struct winsize w;
     ioctl(0, TIOCGWINSZ, &w);
     mTerminalWidth = w.ws_col;
     if (mTerminalWidth <= 0)
         mTerminalWidth = 1024;
+#endif
 }
 
 RClient::~RClient()

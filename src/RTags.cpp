@@ -17,7 +17,13 @@
 
 #include <dirent.h>
 #include <fcntl.h>
-#include <fnmatch.h>
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <Shlwapi.h>
+#  include <rct/WindowsUnicodeConversion.h>
+#else
+#  include <fnmatch.h>
+#endif
 #include <sys/types.h>
 #ifdef OS_FreeBSD
 #include <sys/sysctl.h>
@@ -142,7 +148,11 @@ Path findAncestor(Path path, const String &fn, Flags<FindAncestorFlag> flags, So
                     assert(buf[slash] == '/');
                     assert(l + slash + 1 < static_cast<int>(sizeof(buf)));
                     memcpy(buf + slash + 1, entry->d_name, l);
+#ifdef _WIN32
+                    if (PathMatchSpecW(Utf8To16(buf), Utf8To16(fn.constData()))) {
+#else
                     if (!fnmatch(fn.constData(), buf, 0)) {
+#endif
                         ret = buf;
                         ret.truncate(slash + 1);
                         found = true;
