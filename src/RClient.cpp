@@ -110,6 +110,7 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
 #ifdef RTAGS_HAS_LUA
     { RClient::VisitAST, "visit-ast", 0, CommandLineParser::Required, "Visit AST of a source file." },
 #endif
+    { RClient::Validate, "validate", 0, CommandLineParser::NoValue, "Validate database files for current project." },
     { RClient::Tokens, "tokens", 0, CommandLineParser::Required, "Dump tokens for file. --tokens file.cpp:123-321 for range." },
     { RClient::None, String(), 0, CommandLineParser::NoValue, "" },
     { RClient::None, String(), 0, CommandLineParser::NoValue, "Command flags:" },
@@ -623,6 +624,9 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
                          CommandLineParser::Parse_Error };
             }
             break; }
+        case Validate: {
+            addQuery(QueryMessage::Validate);
+            break; }
         case Version: {
             fprintf(stdout, "%s\n", RTags::versionString().constData());
             return { String(), CommandLineParser::Parse_Ok }; }
@@ -741,7 +745,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             break; }
         case SymbolInfo: {
             std::cmatch match;
-            std::regex rx("^(.*):([0-9]+):([0-9]+):?-:?([0-9]+):([0-9]+):?(@[A-Za-z,]+)?");
+            std::regex rx("^(.*):([0-9]+):([0-9]+):?-:?([0-9]+):([0-9]+):?(@[A-Za-z,]+)?", std::regex_constants::basic);
             Path path;
             List<String> kinds;
             uint32_t line = 0, col = 0, line2 = 0, col2 = 0;
@@ -757,7 +761,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
                     return { String::format<1024>("Can't parse range %s", value.constData()), CommandLineParser::Parse_Error };
                 }
             } else {
-                std::regex rx2("^(.*):([0-9]+):([0-9]+):?(@[A-Za-z,]+)?");
+                std::regex rx2("^(.*):([0-9]+):([0-9]+):?(@[A-Za-z,]+)?", std::regex_constants::basic);
                 if (std::regex_match(value.constData(), match, rx2)) {
                     path.assign(value.constData(), match.length(1));
                     line = atoi(value.constData() + match.position(2));
