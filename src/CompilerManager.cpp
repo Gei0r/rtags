@@ -60,12 +60,12 @@ void applyToSource(Source &source, Flags<CompilerManager::Flag> flags)
         List<String> overrides;
         List<String> out, err;
         List<String> args;
-        List<String> environ({"RTAGS_DISABLED=1"});
+        List<String> env({"RTAGS_DISABLED=1"});
         args << "-x" << "c++" << "-v" << "-E" << "-dM" << "-";
 
         for (int i=0; i<4; /* see below */) {
             Process proc;
-            proc.exec(cpath, args, environ);
+            proc.exec(cpath, args, env);
             assert(proc.isFinished());
             if (!proc.returnCode()) {
                 out << proc.readAllStdOut().split('\n');
