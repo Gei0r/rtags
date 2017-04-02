@@ -33,7 +33,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/RTagsVersion.h.in" "${CMAKE_CURRENT_
 # Set RPATH when installing to a custom (non-system) directory
 list(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
 if ("${isSystemDir}" STREQUAL "-1")
-    set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:${CMAKE_INSTALL_PREFIX}/lib")
+    list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)
 endif ()
 
 include(${CMAKE_SOURCE_DIR}/cmake/EnsureLibraries.cmake)
@@ -240,6 +240,7 @@ set(RTAGS_ELISP_FILES
     rtags.el
     rtags-ac.el
     rtags-helm.el
+    rtags-ivy.el
     company-rtags.el
     flycheck-rtags.el)
 

@@ -96,6 +96,18 @@ String versionString();
 const LogLevel DiagnosticsLevel(-2);
 const LogLevel Statistics(-3);
 
+enum ExitCodes {
+    Success = 0,
+    GeneralFailure = 32,
+    NetworkFailure = 33,
+    TimeoutFailure = 34,
+    NotIndexed = 35,
+    ConnectionFailure = 36,
+    ProtocolFailure = 37,
+    ArgumentParseError = 38,
+    UnexpectedMessageError = 39,
+    UnknownMessageError = 40
+};
 enum UnitType {
     CompileC,
     CompileCPlusPlus
@@ -637,7 +649,7 @@ inline int targetRank(CXCursorKind kind)
 {
     switch (kind) {
     case CXCursor_Constructor: // this one should be more than class/struct decl
-        return 5;
+        return 3;
     case CXCursor_ClassDecl:
     case CXCursor_StructDecl:
     case CXCursor_ClassTemplate:
@@ -651,7 +663,7 @@ inline int targetRank(CXCursorKind kind)
         // functiondecl and cxx method must be more than cxx
         // CXCursor_FunctionTemplate. Since constructors for templatized
         // objects seem to come out as function templates
-        return 3;
+        return 4;
     case CXCursor_MacroDefinition:
         return 5;
     default:

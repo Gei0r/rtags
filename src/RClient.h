@@ -37,7 +37,6 @@ public:
         AllDependencies,
         AllReferences,
         AllTargets,
-        Autotest,
         BuildIndex,
         CheckIncludes,
         CheckReindex,
@@ -50,6 +49,7 @@ public:
         CodeCompletePrefix,
         CodeCompletionEnabled,
         CompilationFlagsOnly,
+        CompilationFlagsPwd,
         CompilationFlagsSplitLine,
         Compile,
         ConnectTimeout,
@@ -157,17 +157,11 @@ public:
         NumOptions
     };
 
-    enum Flag {
-        Flag_None = 0x0,
-        Flag_Autotest = 0x1
-    };
-
     RClient();
     ~RClient();
-    int exec();
+    void exec();
+    int exitCode() const { return mExitCode; }
     CommandLineParser::ParseStatus parse(size_t argc, char **argv);
-
-    Flags<Flag> flags() const { return mFlags; }
 
     int max() const { return mMax; }
     LogLevel logLevel() const { return mLogLevel; }
@@ -208,7 +202,6 @@ private:
     void addCompile(String &&args, const Path &cwd);
     void addCompile(Path &&compileCommands);
 
-    Flags<Flag> mFlags;
     Flags<QueryMessage::Flag> mQueryFlags;
     int mMax, mTimeout, mMinOffset, mMaxOffset, mConnectTimeout, mBuildIndex;
     LogLevel mLogLevel;
@@ -225,6 +218,7 @@ private:
     bool mGuessFlags;
     Path mProjectRoot;
     int mTerminalWidth;
+    int mExitCode;
 #ifdef RTAGS_HAS_LUA
     List<String> mVisitASTScripts;
 #endif
@@ -233,7 +227,5 @@ private:
     String mCommandLine;
     friend class CompileCommand;
 };
-
-RCT_FLAGS(RClient::Flag);
 
 #endif

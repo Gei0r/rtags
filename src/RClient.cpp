@@ -156,6 +156,7 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
     { RClient::BuildIndex, "build-index", 0, CommandLineParser::Required, "For sources with multiple builds, use the arg'th." },
     { RClient::CompilationFlagsOnly, "compilation-flags-only", 0, CommandLineParser::NoValue, "For --source, only print compilation flags." },
     { RClient::CompilationFlagsSplitLine, "compilation-flags-split-line", 0, CommandLineParser::NoValue, "For --source, print one compilation flag per line." },
+    { RClient::CompilationFlagsPwd, "compilation-flags-pwd", 0, CommandLineParser::NoValue, "For --source, print pwd for compile command on the first line." },
     { RClient::DumpIncludeHeaders, "dump-include-headers", 0, CommandLineParser::NoValue, "For --dump-file, also dump dependencies." },
     { RClient::SilentQuery, "silent-query", 0, CommandLineParser::NoValue, "Don't log this request in rdm." },
     { RClient::SynchronousCompletions, "synchronous-completions", 0, CommandLineParser::NoValue, "Wait for completion results and print them to stdout." },
@@ -167,7 +168,6 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
     { RClient::WildcardSymbolNames, "wildcard-symbol-names", 'a', CommandLineParser::NoValue, "Expand * like wildcards in --list-symbols and --find-symbols." },
     { RClient::NoColor, "no-color", 'z', CommandLineParser::NoValue, "Don't colorize context." },
     { RClient::Wait, "wait", 0, CommandLineParser::NoValue, "Wait for reindexing to finish." },
-    { RClient::Autotest, "autotest", 0, CommandLineParser::NoValue, "Turn on behaviors appropriate for running autotests." },
     { RClient::CodeCompleteIncludeMacros, "code-complete-include-macros", 0, CommandLineParser::NoValue, "Include macros in code completion results." },
     { RClient::CodeCompleteIncludes, "code-complete-includes", 0, CommandLineParser::NoValue, "Give includes in completion results." },
     { RClient::CodeCompleteNoWait, "code-complete-no-wait", 0, CommandLineParser::NoValue, "Don't wait for synchronous completion if the translation unit has to be created." },
@@ -322,7 +322,7 @@ RClient::RClient()
     : mMax(-1), mTimeout(-1), mMinOffset(-1), mMaxOffset(-1),
       mConnectTimeout(DEFAULT_CONNECT_TIMEOUT), mBuildIndex(0),
       mLogLevel(LogLevel::Error), mTcpPort(0), mGuessFlags(false),
-      mTerminalWidth(-1)
+      mTerminalWidth(-1), mExitCode(RTags::ArgumentParseError)
 {
 #ifdef _WIN32
     mTerminalWidth = 80;
@@ -368,7 +368,7 @@ void RClient::addCompile(Path &&path)
     mCommands.append(std::make_shared<CompileCommand>(std::move(path)));
 }
 
-int RClient::exec()
+void RClient::exec()
 {
     RTags::initMessages();
     OnDestruction onDestruction([]() { Message::cleanup(); });
@@ -385,7 +385,8 @@ int RClient::exec()
         if (!connection->connectTcp(mTcpHost, mTcpPort, mConnectTimeout)) {
             if (mLogLevel >= LogLevel::Error)
                 fprintf(stdout, "Can't seem to connect to server (%s:%d)\n", mTcpHost.constData(), mTcpPort);
-            return 1;
+            mExitCode = RTags::ConnectionFailure;
+            return;
         }
         connection->connected().connect(std::bind(&EventLoop::quit, loop.get()));
         loop->exec(mConnectTimeout);
@@ -397,32 +398,31 @@ int RClient::exec()
                     fprintf(stdout, "Can't seem to connect to server (%s)\n", mSocketFile.constData());
                 }
             }
-            return 1;
+            mExitCode = RTags::ConnectionFailure;
+            return;
         }
     } else if (!connection->connectUnix(mSocketFile, mConnectTimeout)) {
         if (mLogLevel >= LogLevel::Error)
             fprintf(stdout, "Can't seem to connect to server (%s)\n", mSocketFile.constData());
-        return 1;
+        mExitCode = RTags::ConnectionFailure;
+        return;
     }
 
-    int ret = 0;
-    bool hasZeroExit = false;
     for (int i=0; i<commandCount; ++i) {
         const std::shared_ptr<RCCommand> &cmd = mCommands.at(i);
         debug() << "running command " << cmd->description();
-        if (!cmd->exec(this, connection) || loop->exec(timeout()) != EventLoop::Success) {
-            ret = 1;
+        if (!cmd->exec(this, connection)) {
+            mExitCode = RTags::NetworkFailure;
+            break;
+        } else if (loop->exec(timeout()) != EventLoop::Success) {
+            mExitCode = RTags::TimeoutFailure;
             break;
         }
-        if (connection->finishStatus() == 0)
-            hasZeroExit = true;
+        mExitCode = connection->finishStatus();
     }
     if (connection->client())
         connection->client()->close();
     mCommands.clear();
-    if (!ret && !(mFlags & Flag_Autotest) && !hasZeroExit)
-        ret = connection->finishStatus();
-    return ret;
 }
 
 CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
@@ -463,9 +463,11 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             break; }
         case Help: {
             CommandLineParser::help(stdout, "rc", opts);
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok } ; }
         case Man: {
             CommandLineParser::man(opts);
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case SocketFile: {
             mSocketFile = std::move(value);
@@ -506,14 +508,11 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
         case CodeCompletionEnabled: {
             mQueryFlags |= QueryMessage::CodeCompletionEnabled;
             break; }
-        case Autotest: {
-            mFlags |= Flag_Autotest;
-            break; }
         case CompilationFlagsOnly: {
             mQueryFlags |= QueryMessage::CompilationFlagsOnly;
             break; }
-        case NoColor: {
-            mQueryFlags |= QueryMessage::NoColor;
+        case CompilationFlagsPwd: {
+            mQueryFlags |= QueryMessage::CompilationFlagsPwd;
             break; }
         case CompilationFlagsSplitLine: {
             mQueryFlags |= QueryMessage::CompilationFlagsSplitLine;
@@ -596,6 +595,9 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
         case FilterSystemHeaders: {
             mQueryFlags |= QueryMessage::FilterSystemIncludes;
             break; }
+        case NoColor: {
+            mQueryFlags |= QueryMessage::NoColor;
+            break; }
         case NoContext: {
             mQueryFlags |= QueryMessage::NoContext;
             break; }
@@ -635,11 +637,13 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             break; }
         case Version: {
             fprintf(stdout, "%s\n", RTags::versionString().constData());
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case VerifyVersion: {
             const int version = strtoul(value.constData(), 0, 10);
             if (version != NumOptions) {
                 fprintf(stdout, "Protocol version mismatch\n");
+                mExitCode = RTags::ProtocolFailure;
                 return { String(), CommandLineParser::Parse_Error };
             }
             break; }
@@ -845,10 +849,12 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
         case FindProjectRoot: {
             const Path p = Path::resolved(value); // this won't work correctly with --no-realpath unless --no-realpath is passed first
             printf("findProjectRoot [%s] => [%s]\n", p.constData(), RTags::findProjectRoot(p, RTags::SourceRoot).constData());
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case FindProjectBuildRoot: {
             const Path p = Path::resolved(value); // this won't work correctly with --no-realpath unless --no-realpath is passed first
             printf("findProjectRoot [%s] => [%s]\n", p.constData(), RTags::findProjectRoot(p, RTags::BuildRoot).constData());
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case RTagsConfig: {
             const Path p = Path::resolved(value); // this won't work correctly with --no-realpath unless --no-realpath is passed first
@@ -857,6 +863,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             for (const auto &it : config) {
                 printf("%s: \"%s\"\n", it.first.constData(), it.second.constData());
             }
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case CurrentProject: {
             addQuery(QueryMessage::Project, String(), QueryMessage::CurrentProjectOnly);
@@ -958,6 +965,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             print(CXCursor_FirstAttr, CXCursor_LastAttr);
             Log(LogLevel::Error, LogOutput::StdOut | LogOutput::TrailingNewLine) << "Preprocessing:";
             print(CXCursor_FirstPreprocessing, CXCursor_LastPreprocessing);
+            mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
         case SetBuffers: {
             String arg;
@@ -1011,7 +1019,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             if (!path.exists()) {
                 return { String::format<1024>("%s does not seem to exist", path.constData()), CommandLineParser::Parse_Error };
             } else if (path.isDir()) {
-                path += "compile_commands.json";
+                path = path.ensureTrailingSlash() + "compile_commands.json";
             } else if (!path.endsWith("/compile_commands.json")) {
                 return { "The file has to be called compile_commands.json", CommandLineParser::Parse_Error };
             }
@@ -1045,7 +1053,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             }
 
             p.resolve(Path::MakeAbsolute);
-            mProjectRoot = p;
+            mProjectRoot = p.ensureTrailingSlash();
             break; }
         case Suspend: {
             Path p;
