@@ -1,0 +1,41 @@
+This is a list of compiler errors on windows, including some commentary on
+what's required to fix them.
+
+Useful Link: [[http://66.165.136.43/dictionary/index.php][Unix to Windows Porting Dictionary for HPC]]
+
+* Errors by cause
+
+** TODO no connectUnix() in class [[file:rct/rct/Connection.h][Connection]] (rct)
+
+We need to find a way to implement this on Windows.
+
+I think using Windows pipes is *not* a good idea, because they are difficult to
+use. I suggest falling back to TCP.
+
+Unix pipes work with special files. Maybe we can emulate this behavior on
+Windows by implementing connectUnix() to read the tcp connection parameters
+(i.e., the port) from the file representing the pipe.
+
+*** Occurences
+- [[file:ClangIndexer.cpp::197][ClangIndex.cpp Line 197]]
+- [[file:RClient.cpp::404][RClient.cpp Line 404]]
+
+** TODO arpa/inet.h not found
+
+Replace with windows-specific include (i.e. Winsock2.h). Might also need to
+#define WIN32_LEAN_AND_MEAN.
+
+*** Occurrences
+- [[file:Server.cpp::20][Server.cpp]]
+
+** TODO mkstemps not declared
+
+mktemps() creates a temporary file that is guaranteed to be unique and opens
+it.
+
+Windows has _mktemp_s() and _wmktemp_s(). Check whether these can be used and
+put them in. Should use the wide function in connection with rct's
+WindowsUnicodeConversions.
+
+*** Occurences
+- [[file:Source.cpp::308][Source.cpp Line 308]]
