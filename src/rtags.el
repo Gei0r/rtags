@@ -1,11 +1,11 @@
 ;;; rtags.el --- A front-end for rtags
 
-;; Copyright (C) 2011-2015  Jan Erik Hanssen and Anders Bakken
+;; Copyright (C) 2011-2017  Jan Erik Hanssen and Anders Bakken
 
 ;; Author: Jan Erik Hanssen <jhanssen@gmail.com>
 ;;         Anders Bakken <agbakken@gmail.com>
 ;; URL: http://rtags.net
-;; Version: 2.3.94
+;; Version: 2.9
 
 ;; This file is not part of GNU Emacs.
 
@@ -62,14 +62,16 @@
 (declare-function yas-expand-snippet "ext:yasnippet" t)
 (declare-function popup-tip "ext:popup" t)
 (declare-function helm "ext:helm" t)
-(declare-function rtags-ivy-read "ext:ivy" t)
-(declare-function rtags-helm-get-candidate-line 'rtags (candidate))
+(declare-function ivy-rtags-read "ext:ivy" t)
+(declare-function package-desc-dir "ext:package" t)
+(declare-function helm-rtags-get-candidate-line 'rtags (candidate))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defconst rtags-protocol-version 122)
+(defconst rtags-package-version "2.9")
 (defconst rtags-popup-available (require 'popup nil t))
 (defconst rtags-supported-major-modes '(c-mode c++-mode objc-mode) "Major modes RTags supports.")
 (defconst rtags-verbose-results-delimiter "------------------------------------------")
@@ -100,8 +102,8 @@
 (defvar rtags-jump-hook nil)
 (defvar rtags-diagnostics-suspended nil)
 (defvar rtags-taglist-hook nil)
-(defvar rtags-path-face 'rtags-path "Path part")
-(defvar rtags-context-face 'rtags-context "Context part")
+(defvar rtags-path-face 'rtags-path "Path part.")
+(defvar rtags-context-face 'rtags-context "Context part.")
 (defvar rtags-last-request-not-indexed nil)
 (defvar rtags-last-request-not-connected nil)
 (defvar rtags-buffer-bookmarks 0)
@@ -114,7 +116,7 @@
 ;; Customizations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defcustom rtags-enabled t
-  "Whether RTags is enabled. We try to do nothing when it's not."
+  "Whether RTags is enabled.  We try to do nothing when it's not."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -171,7 +173,7 @@ Set to nil to enable ido-ubiquitous etc."
 
 (defcustom rtags-diagnostics-use-pipe t
   "Whether diagnostics should use pipes.
-If you're running emacs in cygwin you might have to set this to nil."
+If you're running Emacs in cygwin you might have to set this to nil."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -183,15 +185,13 @@ If you're running emacs in cygwin you might have to set this to nil."
   :safe 'booleanp)
 
 (defcustom rtags-spellcheck-enabled t
-  "Whether RTags does syntax checking with overlays etc to mark errors,
-warnings and fixups."
+  "Whether RTags does syntax checking with overlays etc to mark errors, warnings and fixups."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
 
 (defcustom rtags-multiple-targets t
-  "Whether RTags will offer multiple choices for rtags-find-symbol-at-point when appropriate,
-warnings and fixups."
+  "Whether RTags will offer multiple choices for `rtags-find-symbol-at-point' when appropriate, warnings and fixups."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -203,8 +203,7 @@ warnings and fixups."
   :safe 'booleanp)
 
 (defcustom rtags-sort-references-by-input t
-  "Whether RTags sorts the references based on the input to
-`rtags-find-references'."
+  "Whether RTags sorts the references based on the input to `rtags-find-references'."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -216,12 +215,14 @@ warnings and fixups."
   :safe 'booleanp)
 
 (defun rtags-set-transient-map (map)
+  "Set transient MAP."
   (cond ((fboundp 'set-transient-map) (set-transient-map map))
         ((fboundp 'set-temporary-overlay-map) (set-temporary-overlay-map map))
         (t)))
 
 (defvar rtags-periodic-reparse-timer nil)
 (defun rtags--update-periodic-reparse-timer ()
+  "Update periodic reparse timer."
   (when (and (not rtags-periodic-reparse-timer)
              rtags-periodic-reparse-timeout)
     (setq rtags-periodic-reparse-timer
@@ -336,7 +337,7 @@ the Customize interface, `rtags-set-periodic-reparse-timeout',
   :safe 'stringp)
 
 (defcustom rtags-find-file-prompt "Find files"
-  "What prompt to use for rtags-find-file"
+  "What prompt to use for ‘rtags-find-file’."
   :group 'rtags
   :type 'string
   :type 'stringp)
@@ -391,7 +392,7 @@ on intervals."
   :safe 'numberp)
 
 (defcustom rtags-container-timer-interval .5
-  "Interval for container timer"
+  "Interval for container timer."
   :group 'rtags
   :type 'number
   :safe 'numberp)
@@ -507,8 +508,7 @@ return t if RTags is allowed to modify this file."
   :safe 'booleanp)
 
 (defcustom rtags-find-file-prefer-exact-match t
-  "Jump directly to files that exactly match the filename for
-`rtags-find-file'."
+  "Jump directly to files that exactly match the filename for `rtags-find-file'."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -519,13 +519,12 @@ return t if RTags is allowed to modify this file."
   :type 'integer)
 
 (defcustom rtags-split-window-function 'split-window
-  "Function to split window. default is `split-window'."
+  "Function to split window.  default is `split-window'."
   :group 'rtags
   :type 'function)
 
 (defcustom rtags-buffer-follows-sandbox-id-match 'ask
-  "Tells the way current buffer follows sandbox-id in case
-match fails at a query to rc/rdm backend.
+  "Tells the way current buffer follows sandbox-id in case match fails at a query to rc/rdm backend.
 
 `nil' perform current query without updating diagnostics buffer.
       Diagnostics will be away from current context.
@@ -571,20 +570,17 @@ Note: It is recommended to run each sandbox is separate Emacs process."
   :type 'boolean
   :safe 'booleanp)
 
-(defcustom rtags-use-helm nil
-  "If t, use helm to display results when appropriate."
+(defcustom rtags-display-result-backend 'default
+  "Method to use to diplay RTags results, like references."
+  :type '(choice (const :tag "RTags (default)" default)
+                 (const :tag "Helm" helm)
+                 (const :tag "Ivy" ivy))
   :group 'rtags
-  :type 'boolean
-  :safe 'booleanp)
-
-(defcustom rtags-use-ivy nil
-  "If t, use ivy to display results when appropriate."
-  :group 'rtags
-  :type 'boolean
-  :safe 'booleanp)
+  :type 'symbol
+  :risky t)
 
 (defcustom rtags-imenu-kind-filter "-references,-vardecl,-parmdecl,-inclusiondirective,-*literal*,-enumconstantdecl,-classdecl-,-structdecl-,-classtemplate-,-statements,-lambdaexpr"
-  "argument passed to --kind-filter for rtags-imenu"
+  "Argument passed to --kind-filter for ‘rtags-imenu’."
   :group 'rtags
   :type 'string
   :safe 'stringp)
@@ -661,9 +657,11 @@ Effected interactive functions:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun rtags-buffer-file-name (&optional buffer)
+  "Return the BUFFER file name."
   (buffer-file-name (or (buffer-base-buffer buffer) buffer)))
 
 (defun rtags-remove (predicate seq &optional not)
+  "RTags remove."
   (let ((ret))
     (while seq
       (let ((matched (funcall predicate (car seq))))
@@ -674,13 +672,15 @@ Effected interactive functions:
         (setq seq (cdr seq))))
     ret))
 
-(defun rtags-remove-last-if-duplicated (seq) ;; destroys seq
+(defun rtags-remove-last-if-duplicated (seq)
+  "Destroy SEQ."
   (let ((newitem (car (last seq))))
     (when (> (length (member newitem seq)) 1)
       (nbutlast seq 1))
     seq))
 
 (defun rtags-is-indexable-default (buffer)
+  "Check whether open file in BUFFER is indexable."
   (let ((filename (rtags-buffer-file-name buffer)))
     (when filename
       (let ((suffix (and (string-match "\.\\([^.]+\\)$" filename) (match-string 1 filename))))
@@ -690,22 +690,29 @@ Effected interactive functions:
                  t))))))
 
 (defun rtags-get-buffer (&optional name)
+  "Return *RTags* buffer.
+
+When optional argument NAME is non-nil return buffer with NAME instead
+of *RTags* buffer."
   (unless name
     (setq name rtags-buffer-name))
   (when (get-buffer name)
     (kill-buffer name))
   (generate-new-buffer name))
 
-(defvar-local rtags-previous-window-configuration nil)
+(defvar rtags-previous-window-configuration nil)
+(make-variable-buffer-local 'rtags-previous-window-configuration)
 (put 'rtags-previous-window-configuration 'permanent-local t)
 
 (defun rtags-switch-to-buffer (buffer-or-name &optional other-window)
-  ;; (unless (get-buffer-window (current-buffer) (selected-frame))
+  "Switch to buffer.
+Switch to BUFFER-OR-NAME, when optional argument OTHER-WINDOW is non-nil,
+switch to BUFFER-OR-NAME in other window."
   (let ((conf (current-window-configuration)))
     (if other-window
         (switch-to-buffer-other-window buffer-or-name)
       (switch-to-buffer buffer-or-name))
-    (setq-local rtags-previous-window-configuration conf)))
+    (set (make-local-variable 'rtags-previous-window-configuration) conf)))
 
 ;; for old emacsen
 (defun rtags-string-prefix-p (str1 str2 &optional ignore-case)
@@ -716,10 +723,12 @@ to case differences."
                          str2 0 (length str1) ignore-case)))
 
 (defun rtags-is-rtags-buffer (&optional buffer)
+  "Check if buffer is *RTags* buffer."
   (and (not (buffer-file-name buffer))
        (rtags-string-prefix-p "*RTags" (buffer-name buffer))))
 
 (defun rtags-has-diagnostics ()
+  "Check for diagnostics."
   (and (get-buffer rtags-diagnostics-buffer-name)
        rtags-diagnostics-process
        (not (eq (process-status rtags-diagnostics-process) 'exit))
@@ -727,6 +736,7 @@ to case differences."
        (> (process-id rtags-diagnostics-process) 0)))
 
 (defun rtags-bury-or-delete ()
+  "Bury or delete buffer."
   (interactive)
   (let ((conf rtags-previous-window-configuration)
         (frame (selected-frame)))
@@ -736,6 +746,7 @@ to case differences."
 
 ;;;###autoload
 (defun rtags-call-bury-or-delete ()
+  "Call `rtags-bury-buffer-function' function."
   (interactive)
   (funcall rtags-bury-buffer-function))
 
@@ -936,7 +947,7 @@ to case differences."
       (set-buffer rtags-buffer-name)
       (when reset
         (goto-char (point-min)))
-      (when (and rtags-use-helm
+      (when (and (eq rtags-display-result-backend 'helm)
                  (boundp 'helm-action-buffer)
                  (get-buffer-window helm-action-buffer 'visible)
                  (fboundp 'helm-keyboard-quit))
@@ -1008,6 +1019,9 @@ to case differences."
             (and (file-executable-p file) file))
           (let ((file (expand-file-name exe (concat rtags-path "/bin/"))))
             (and (file-executable-p file) file))))
+        ((let* ((install-path (rtags-package-install-path))
+                (file (and install-path (concat install-path "rtags-" rtags-package-version "/bin/" exe))))
+           (and file (file-executable-p file) file)))
         (t (executable-find exe))))
 
 (defun rtags-remove-keyword-params (seq)
@@ -1249,6 +1263,7 @@ to only call this when `rtags-socket-file' is defined.
                        (error (concat "RTags protocol version mismatch. This is usually caused by getting rtags.el from melpa\n"
                                       "and installing a new rtags build that modified the protocol. They need to be in sync."))))
                     ((= result rtags-exit-code-not-indexed)
+                     (message "%s not indexed" (or path "buffer"))
                      (erase-buffer)
                      (setq rtags-last-request-not-indexed t))
                     (t)))) ;; other error
@@ -2660,7 +2675,7 @@ This includes both declarations and definitions."
           (rtags-switch-to-buffer (rtags-get-buffer "*RTags rename symbol*"))
           (insert (propertize (concat "Change to '" replacewith) 'face 'rtags-context-face) "'\n" (rtags-rename-confirm-text (nreverse confirms) len) "\n")
           (goto-char (point-min))
-          (unless (y-or-n-p (format "RTags: Confirm %d renames? " (length confirms)))
+          (unless (y-or-n-p (format "RTags: Confirm %d renames? " (length replacements)))
             (setq replacements nil))
           (kill-buffer (current-buffer)))
         (dolist (value replacements)
@@ -3088,7 +3103,7 @@ This includes both declarations and definitions."
     (when (and start
                end
                replacedata
-               (eq severity 'fixit)
+               (eq severity 'fixit))
       (save-excursion
         (save-restriction
           (widen)
@@ -3111,7 +3126,7 @@ This includes both declarations and definitions."
                           (end (overlay-get overlay 'rtags-error-end)))
                       (overlay-put overlay 'rtags-error-start (+ start change))
                       (overlay-put overlay 'rtags-error-end (+ end change))))
-                  (setq overlays (cdr overlays))))))))))))
+                  (setq overlays (cdr overlays)))))))))))
 
 ;;;###autoload
 (defun rtags-fix-fixit-at-point ()
@@ -3442,16 +3457,21 @@ other window instead of the current one."
            (message "RTags: Found %d locations."
                     (count-lines (point-min) (point-max))))
          ;; Optionally jump to first result and open results buffer
-         (when (and rtags-popup-results-buffer (not rtags-use-helm) (not rtags-use-ivy) (rtags-switch-to-buffer rtags-buffer-name t))
+         (when (and rtags-popup-results-buffer
+                    (eq rtags-display-result-backend 'default)
+                    (rtags-switch-to-buffer rtags-buffer-name t))
            (shrink-window-if-larger-than-buffer))
-         (if rtags-use-helm
-             (helm :sources '(rtags-helm-source))
-           (if rtags-use-ivy
-               (rtags-ivy-read)
-             (when (and rtags-jump-to-first-match (not noautojump))
-               (if rtags-popup-results-buffer
-                   (rtags-select-other-window)
-                 (rtags-select other-window)))))
+         (cond ((eq rtags-display-result-backend 'default)
+                (when (and rtags-jump-to-first-match (not noautojump))
+                  (if rtags-popup-results-buffer
+                      (rtags-select-other-window)
+                    (rtags-select other-window))))
+               ((eq rtags-display-result-backend 'helm)
+                (require 'helm-rtags)
+                (helm :sources '(helm-rtags-source)))
+               ((eq rtags-display-result-backend 'ivy)
+                (require 'ivy-rtags)
+                (ivy-rtags-read)))
          t)))
 
 (defun rtags-filename-complete (string predicate code)
@@ -3640,11 +3660,11 @@ other window instead of the current one."
                 (goto-char (point-min))
                 (and (looking-at "Functions called from: \\(.*?\\):[0-9]+:[0-9]+:")
                      (match-string 1)))))
-  (when file
-    (save-excursion
-      (goto-char (point-at-bol))
-      (when (looking-at ".*called from - .*?:\\([0-9]+\\):\\([0-9]+\\):")
-        (rtags-goto-location (concat file ":" (match-string 1) ":" (match-string 2)) (not not-other-window)))))))
+    (when file
+      (save-excursion
+        (goto-char (point-at-bol))
+        (when (looking-at ".*called from - .*?:\\([0-9]+\\):\\([0-9]+\\):")
+          (rtags-goto-location (concat file ":" (match-string 1) ":" (match-string 2)) (not not-other-window)))))))
 
 
 ;;;###autoload
@@ -4010,7 +4030,6 @@ definition."
                      (when rtags-wildcard-symbol-names "--wildcard-symbol-names")
                      (when rtags-symbolnames-case-insensitive "-I")
                      (unless rtags-print-filenames-relative "-K"))
-      ;; (setq-local rtags-current-file (or path default-directory))
       (rtags-handle-results-buffer nil nil path other-window))))
 
 (defun rtags-symbolname-completion-get (string)
@@ -4174,7 +4193,7 @@ definition."
     (when rc
       (process-file rc nil nil nil "--quit-rdm"))))
 
-(defun rdm-includes ()
+(defun rtags-rdm-includes ()
   (mapconcat 'identity
              (mapcar
               (lambda (item) (concat "-I" item))
@@ -4184,7 +4203,7 @@ definition."
   "Shell command used to start the `rtags-server' process."
   (format "%s %s %s"
           (rtags-executable-find "rdm")
-          (rdm-includes)
+          (rtags-rdm-includes)
           rtags-process-flags))
 
 (defun rtags-cancel-process ()
@@ -4436,11 +4455,11 @@ Return nil if it can't get any info about the item."
             (setq symbol-text (format "enum: %s = %d(0x%x)" (cdr (assoc 'symbolName symbol))
                                       (cdr (assoc 'enumValue symbol)) (cdr (assoc 'enumValue symbol))))
           (setq symbol-text (cdr (assoc 'contents (rtags-get-file-contents :info symbol :maxlines (or max-num-lines 5)))))
-        (when arg-text
-          (setq symbol-text (concat symbol-text "\n" arg-text)))
-        (when brief
-          (setq symbol-text (concat symbol-text "\n\n" brief)))
-        symbol-text)))))
+          (when arg-text
+            (setq symbol-text (concat symbol-text "\n" arg-text)))
+          (when brief
+            (setq symbol-text (concat symbol-text "\n\n" brief)))
+          symbol-text)))))
 
 ;;;###autoload
 (defun rtags-display-summary (&optional hide-empty pos)
@@ -4883,6 +4902,89 @@ the user enter missing field manually."
              "[ \t\n]+" " "
              (replace-regexp-in-string "\n" " " doc)))))))
 
+(defun rtags-package-install-path ()
+  (when (boundp 'package-alist)
+    (let ((pkg (cadr (assq 'rtags package-alist))))
+      (and pkg (concat (package-desc-dir pkg) "/")))))
+
+(defconst rtags-install-buffer-name "*RTags Install*")
+(defvar rtags-install-process nil)
+(defun rtags-install-process-filter (process output)
+  (with-current-buffer (process-buffer process)
+    (let ((start (point-max)))
+      (goto-char (point-max))
+      (let ((buffer-read-only nil))
+        (insert (replace-regexp-in-string "\r" "\n" output))))))
+
+(defun rtags-install-process-sentinel (process event)
+  (let ((status (process-status process)))
+    (cond ((eq status 'exit)
+           (message "RTags is now installed in %s"
+                    (with-current-buffer (process-buffer process)
+                      default-directory)))
+          ((memq status '(signal closed failed))
+           (message "RTags failed to install")
+           (switch-to-buffer (process-buffer process)))
+          (t nil))))
+
+
+(defcustom rtags-install-cmake-args nil
+  "Additional arguments to cmake when building rtags with rtags-install."
+  :group 'rtags
+  :type 'string
+  :safe 'stringp)
+
+(defun rtags-install (&optional dir cmakeargs)
+  (interactive "P")
+  (when (cond ((not (processp rtags-install-process)))
+              ((memq (process-status rtags-install-process) '(exit signal closed failed)))
+              ((and (y-or-n-p "RTags is already installing. Do you want to abort that install?")
+                    (or (kill-process rtags-install-process) t)))
+              (t (switch-to-buffer (get-buffer rtags-install-buffer-name)) nil))
+    (cond ((stringp dir))
+          ((and (not dir) (setq dir (rtags-package-install-path))))
+          (t (setq dir (read-directory-name "RTags install dir: "))))
+    (unless dir
+      (error "Nowhere to install"))
+    (unless (file-directory-p dir)
+      (make-directory dir))
+    (let ((default-directory dir))
+      (with-temp-buffer
+        (insert "#!/bin/bash -x\n"
+                (format "FILE=\"rtags-%s.tar.bz2\"\n" rtags-package-version)
+                "URL=\"https://andersbakken.github.io/rtags-releases/$FILE\"\n"
+                "ARGS=\"--progress -L -o $FILE\"\n"
+                "CMAKEARGS=" (combine-and-quote-strings (append (and rtags-install-cmake-args (list rtags-install-cmake-args))
+                                                                (if (listp cmakeargs) cmakeargs (list cmakeargs)))) "\n"
+                "[ -e \"$FILE\" ] && ARGS=\"$ARGS -C -\"\n"
+                "ARGS=\"$ARGS $URL\"\n"
+                "echo \"Downloading rtags from $URL\"\n"
+                "if ! curl $ARGS; then\n"
+                "    echo \"Failed to download $FILE from $URL\" >&2\n"
+                "    exit 1\n"
+                "fi\n"
+                "\n"
+                "if ! tar xfj \"$FILE\"; then\n"
+                "    echo \"Failed to untar $FILE\" >&2\n"
+                "    rm \"$FILE\"\n"
+                "    exit 2\n"
+                "fi\n"
+                "\n"
+                "cd \"`echo $FILE | sed -e 's,\.tar.bz2,,'`\"\n"
+                "if ! cmake . ${CMAKEARGS}; then\n"
+                "    echo Failed to cmake\n"
+                "    rm -rf CMakeCache.txt\n"
+                "    exit 3\n"
+                "fi\n"
+                "make\n"
+                "exit $?\n")
+        (write-region (point-min) (point-max) "install-rtags.sh"))
+      (switch-to-buffer (rtags-get-buffer "*RTags install*"))
+      (setq buffer-read-only t)
+      (setq rtags-install-process (start-process "*RTags install*" (current-buffer) "bash" (concat dir "/install-rtags.sh")))
+      (set-process-sentinel rtags-install-process 'rtags-install-process-sentinel)
+      (set-process-filter rtags-install-process 'rtags-install-process-filter))))
+
+
 (provide 'rtags)
 
-;;; rtags.el ends here

@@ -1,7 +1,7 @@
 #+OPTIONS: ^:nil
-[[https://travis-ci.org/Andersbakken/rtags][https://travis-ci.org/Andersbakken/rtags.svg?branch=master]]
-[[http://www.gnu.org/licenses/gpl-3.0.txt][https://img.shields.io/badge/license-GPL%203-brightgreen.svg]]
-[[http://melpa.org/#/rtags][file:http://melpa.org/packages/rtags-badge.svg]]
+
+#+html: <div align="center"><a href="https://travis-ci.org/Andersbakken/rtags"><img alt="MELPA" src="https://travis-ci.org/Andersbakken/rtags.svg?branch=master"/></a> <a href="https://www.gnu.org/licenses/gpl-3.0.txt"><img alt="MELPA" src="https://img.shields.io/badge/license-GPL%203-brightgreen.svg"/></a></div>
+#+html: <table align="center" style="width:100%"><tr><th>rtags</th><th>ac-rtags</th><th>company-rtags</th><th>flycheck-rtags</th><th>helm-rtags</th><th>ivy-rtags</th></tr><tr><td align="center"><a href="https://melpa.org/#/rtags"><img alt="MELPA" src="https://melpa.org/packages/rtags-badge.svg"/></a></td><td align="center"><a href="https://melpa.org/#/ac-rtags"><img alt="MELPA" src="https://melpa.org/packages/ac-rtags-badge.svg"/></a></td><td align="center"><a href="https://melpa.org/#/company-rtags"><img alt="MELPA" src="https://melpa.org/packages/company-rtags-badge.svg"/></a></td><td align="center"><a href="https://melpa.org/#/flycheck-rtags"><img alt="MELPA" src="https://melpa.org/packages/flycheck-rtags-badge.svg"/></a></td><td align="center"><a href="https://melpa.org/#/helm-rtags"><img alt="MELPA" src="https://melpa.org/packages/helm-rtags-badge.svg"/></a></td><td align="center"><a href="https://melpa.org/#/ivy-rtags"><img alt="MELPA" src="https://melpa.org/packages/ivy-rtags-badge.svg"/></a></td></tr></table>
 
 * Introduction
 RTags is a client/server application that indexes C/C++ code and keeps a
@@ -50,13 +50,19 @@ Index the RTags project, and wait until =rdm= is silent
 Open source file in =emacs=
 
 #+BEGIN_SRC sh
-emacs +72:34 src/rdm.cpp
+emacs +73:34 src/rdm.cpp
 #+END_SRC
 
 Load =rtags.el=
 
 #+BEGIN_EXAMPLE
 M-: (load-file "rtags.el") RET
+#+END_EXAMPLE
+
+Insure =rc= can be found
+
+#+BEGIN_EXAMPLE
+M-: set-variable RET rtags-path RET "../bin" RET
 #+END_EXAMPLE
 
 Call =rtags-find-symbol-at-point=
@@ -207,6 +213,27 @@ sudo port install clang-3.5
 
   *TIP:* You can run =ccmake= (CMake with an ncurses UI) instead of =cmake= to
   interactively configure the RTags build.
+
+- Elpa
+
+  You can install the elisp part of RTags using package.el if you add
+  melpa to your sources list.
+
+  Once you have emacs installed from melpa you can use the elisp to
+  build the c++ parts of RTags. You still need to have a working
+  compiler, libclang and cmake installed.
+
+  To use:
+  #+BEGIN_SRC elisp
+  M-x rtags-install <ret>
+  #+END_SRC
+
+  You may have to set additional arguments to cmake for this
+  work. E.g.
+
+  #+BEGIN_SRC elisp
+    M-: (rtags-install nil "-DLIBCLANG_LLVM_CONFIG_EXECUTABLE=/usr/local//Cellar/llvm/4.0.0/bin/llvm-config") <ret>
+  #+END_SRC
 
 * Finding clang
 ** Use Your System's version
@@ -959,8 +986,9 @@ To turn off the automatic Flycheck syntax checking, set the variable
   (flycheck-select-checker 'rtags)
   (setq-local flycheck-highlighting-mode nil) ;; RTags creates more accurate overlays.
   (setq-local flycheck-check-syntax-automatically nil))
-;; c-mode-common-hook is also called by c++-mode
-(add-hook 'c-mode-common-hook #'my-flycheck-rtags-setup)
+(add-hook 'c-mode-hook #'my-flycheck-rtags-setup)
+(add-hook 'c++-mode-hook #'my-flycheck-rtags-setup)
+(add-hook 'objc-mode-hook #'my-flycheck-rtags-setup)
 #+END_SRC
 
 * Helm support
