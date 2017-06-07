@@ -22,7 +22,8 @@
 #include "Server.h"
 
 #ifdef _WIN32
-#include <windows_mktemp.h>
+#  include <windows_mktemp.h>
+#  include <Shlwapi.h>
 #endif // _WIN32
 
 void Source::clear()
@@ -300,8 +301,13 @@ static inline bool isCompiler(const Path &fullPath, const List<String> &environm
 {
     if (Server::instance()->options().compilerWrappers.contains(fullPath.fileName()))
         return true;
-    if (strcasestr(fullPath.fileName(), "emacs"))
+#ifdef _WIN32
+    if(StrStrIA(fullPath.fileName(), "emacs")) {
+#else
+    if (strcasestr(fullPath.fileName(), "emacs")) {
+#endif
         return false;
+    }
     static Hash<Path, bool> sCache;
 
     bool ok;
