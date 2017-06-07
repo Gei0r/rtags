@@ -569,7 +569,7 @@ static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessa
         "(list 'checkstyle "
     };
     static const char *fileEmpty[] = {
-        "\n    <file name=\"%s\">\n    </file>",
+        "\n    <file name=\"%s\">",
         "(cons \"%s\" nil)"
     };
     static const char *startFile[] = {
@@ -677,7 +677,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
 {
     mBytesWritten += msg->bytesWritten();
     std::shared_ptr<IndexerJob> restart;
-    const uint32_t fileId = msg->fileId();
+    const uint32_t fileId = job->fileId();
     auto j = mActiveJobs.take(fileId);
     if (!j) {
         error() << "Couldn't find JobData for" << Location::path(fileId) << msg->id() << job->id << job.get();
@@ -696,7 +696,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
         releaseFileIds(job->visited);
     }
 
-    if (!hasSource(msg->fileId())) {
+    if (!hasSource(fileId)) {
         releaseFileIds(job->visited);
         error() << "Can't find source for" << Location::path(fileId);
         return;
@@ -705,7 +705,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
         for (uint32_t file : job->visited) {
             if (!validate(file, Validate)) {
                 releaseFileIds(job->visited);
-                dirty(job->fileId());
+                dirty(fileId);
                 return;
             }
         }
@@ -733,7 +733,8 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
                             output->vlog("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<progress index=\"%d\" total=\"%d\"></progress>",
                                          idx, mJobCounter);
                         } else {
-                            output->vlog("(list 'progress %d %d)", idx, mJobCounter);
+                            std::shared_ptr<JobScheduler> scheduler = Server::instance()->jobScheduler();
+                            output->vlog("(list 'progress %d %d %zu)", idx, mJobCounter, scheduler->activeJobCount() + scheduler->pendingJobCount());
                         }
                     }
                 }
@@ -742,12 +743,12 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
 
     Set<uint32_t> visited = msg->visitedFiles();
     updateFixIts(visited, msg->fixIts());
-    updateDependencies(msg);
+    updateDependencies(fileId, msg);
     if (success) {
-        forEachSources([&msg](Sources &sources) -> VisitResult {
-                // error() << "finished with" << Location::path(msg->fileId()) << sources.contains(msg->fileId()) << msg->parseTime();
-                if (sources.contains(msg->fileId())) {
-                    sources[msg->fileId()].parsed = msg->parseTime();
+        forEachSources([&msg, fileId](Sources &sources) -> VisitResult {
+                // error() << "finished with" << Location::path(fileId) << sources.contains(fileId) << msg->parseTime();
+                if (sources.contains(fileId)) {
+                    sources[fileId].parsed = msg->parseTime();
                 }
                 return Continue;
             });
@@ -755,9 +756,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
                                                   static_cast<int>(round((double(idx) / double(mJobCounter)) * 100.0)), idx, mJobCounter,
                                                   String::formatTime(time(0), String::Time).constData(),
                                                   msg->message().constData(),
-                                                  (job->priority == IndexerJob::HeaderError
-                                                   ? "header-error"
-                                                   : String::format<16>("priority %d", job->priority).constData())),
+                                                  String::format<16>("priority %d", job->priority()).constData()),
                   LogOutput::StdOut|LogOutput::TrailingNewLine);
     } else {
         assert(msg->indexerJobFlags() & IndexerJob::Crashed);
@@ -1025,6 +1024,7 @@ bool Project::dependsOn(uint32_t source, uint32_t header) const
 
 void Project::removeDependencies(uint32_t fileId)
 {
+    // error() << "removeDependencies" << Location::path(fileId);
     if (DependencyNode *node = mDependencies.take(fileId)) {
         for (auto it : node->includes)
             it.second->dependents.remove(fileId);
@@ -1034,36 +1034,45 @@ void Project::removeDependencies(uint32_t fileId)
     }
 }
 
-void Project::updateDependencies(const std::shared_ptr<IndexDataMessage> &msg)
+void Project::updateDependencies(uint32_t fileId, const std::shared_ptr<IndexDataMessage> &msg)
 {
-    // error() << "updateDependencies" << Location::path(msg->fileId());
+    static_cast<void>(fileId);
     const bool prune = !(msg->flags() & (IndexDataMessage::InclusionError|IndexDataMessage::ParseFailure));
+    // error() << "updateDependencies" << Location::path(fileId) << prune;
     Set<uint32_t> includeErrors, dirty;
     for (auto pair : msg->files()) {
         assert(pair.first);
         DependencyNode *&node = mDependencies[pair.first];
+        // error() << "checking deps" << Location::path(pair.first) << node;
         if (!node) {
             node = new DependencyNode(pair.first);
         }
 
         if (pair.second & IndexDataMessage::Visited) {
-            if (prune) {
-                for (auto it : node->includes)
-                    it.second->dependents.remove(pair.first);
-                node->includes.clear();
-            }
             if (pair.second & IndexDataMessage::IncludeError) {
                 node->flags |= DependencyNode::Flag_IncludeError;
                 includeErrors.insert(pair.first);
                 // error() << "got include error for" << Location::path(pair.first);
             } else if (node->flags & DependencyNode::Flag_IncludeError) {
-                // error() << "used to have include error for" << Location::path(pair.first);
+                // error() << "used to have include error for" << Location::path(pair.first) << node->includes.size();
                 node->flags &= ~DependencyNode::Flag_IncludeError;
                 dirty.insert(pair.first);
+                // for (auto dep : node->includes) {
+                //     dirty.insert(dep.first);
+                //     // error() << "dirty" << Location::path(dep.first);
+                // }
                 for (auto dep : node->dependents) {
                     dirty.insert(dep.first);
                     // error() << "dirty" << Location::path(dep.first);
                 }
+            }
+            if (prune) {
+                for (auto it : node->includes) {
+                    it.second->dependents.remove(pair.first);
+                    // error() << "removing" << Location::path(pair.first) << "from" << Location::path(it.first);
+                }
+                // error() << "Removing all includes for" << Location::path(pair.first) << node->includes.size();
+                node->includes.clear();
             }
         }
         watchFile(pair.first);
@@ -1075,6 +1084,7 @@ void Project::updateDependencies(const std::shared_ptr<IndexDataMessage> &msg)
         assert(it.second);
         DependencyNode *&includer = mDependencies[it.first];
         DependencyNode *&inclusiary = mDependencies[it.second];
+        // error() << "adding include for" << Location::path(it.first) << Location::path(it.second);
         if (!includer)
             includer = new DependencyNode(it.first);
         if (!inclusiary)
@@ -1098,6 +1108,18 @@ void Project::updateDependencies(const std::shared_ptr<IndexDataMessage> &msg)
         simple.init(shared_from_this(), dirty);
         startDirtyJobs(&simple, IndexerJob::Dirty);
     }
+    // for (auto node : mDependencies) {
+    //     for (auto inc : node.second->includes) {
+    //         if (!inc.second->dependents.contains(node.first)) {
+    //             error() << "SHIT SHIT SHIT" << Location::path(inc.first) << "doesn't have" << Location::path(node.first) << "in its dependents";
+    //         }
+    //     }
+    //     for (auto inc : node.second->dependents) {
+    //         if (!inc.second->includes.contains(node.first)) {
+    //             error() << "SHIT SHIT SHIT" << Location::path(inc.first) << "doesn't have" << Location::path(node.first) << "in its includes";
+    //         }
+    //     }
+    // }
 }
 
 int Project::reindex(const Match &match,
@@ -1168,6 +1190,11 @@ int Project::startDirtyJobs(Dirty *dirty, Flags<IndexerJob::Flag> flags,
             assert(!wait); // this can't happen now, if it could we would have to call finish
             if (mActiveJobs.contains(fileId))
                 continue;
+        }
+
+        if (mSuspendedFiles.contains(fileId)) {
+            warning() << "Not starting job for" << Location::path(fileId) << "because it is suspended";
+            continue;
         }
 
         auto job = std::make_shared<IndexerJob>(sources(fileId), flags, shared_from_this(), unsavedFiles);
@@ -1448,6 +1475,7 @@ String Project::toCompileCommands() const
                                                   | Source::IncludeSourceFile
                                                   | Source::IncludeDefines
                                                   | Source::IncludeIncludePaths
+                                                  | Source::IncludeOutputFilename
                                                   | Source::QuoteDefines
                                                   | Source::FilterBlacklist);
     Value ret;
@@ -1515,41 +1543,42 @@ Set<Symbol> Project::findTargets(const Symbol &symbol)
         return false;
     };
 
-    switch (symbol.kind) {
-    case CXCursor_ClassDecl:
-    case CXCursor_ClassTemplate:
-    case CXCursor_StructDecl:
-        if (symbol.isDefinition() && !(symbol.flags & Symbol::TemplateSpecialization))
-            return ret;
-    case CXCursor_FunctionDecl:
-    case CXCursor_CXXMethod:
-    case CXCursor_Destructor:
-    case CXCursor_Constructor:
-    case CXCursor_FieldDecl:
-    case CXCursor_VarDecl:
-    case CXCursor_FunctionTemplate: {
-        const Set<Symbol> symbols = findByUsr(symbol.usr, symbol.location.fileId(), modeForSymbol(symbol));
-        for (const auto &c : symbols) {
-            if (sameKind(c.kind) && symbol.isDefinition() != c.isDefinition()) {
-                ret.insert(c);
-                break;
+    for (int i=0; i<2 && ret.isEmpty(); ++i) {
+        switch (symbol.kind) {
+        case CXCursor_ClassDecl:
+        case CXCursor_ClassTemplate:
+        case CXCursor_StructDecl:
+            if (symbol.isDefinition() && !(symbol.flags & Symbol::TemplateSpecialization))
+                return ret;
+        case CXCursor_FunctionDecl:
+        case CXCursor_CXXMethod:
+        case CXCursor_Destructor:
+        case CXCursor_Constructor:
+        case CXCursor_FieldDecl:
+        case CXCursor_VarDecl:
+        case CXCursor_FunctionTemplate: {
+            const Set<Symbol> symbols = findByUsr(symbol.usr, symbol.location.fileId(), i == 0 ? modeForSymbol(symbol) : Project::All);
+            for (const auto &c : symbols) {
+                if (sameKind(c.kind) && symbol.isDefinition() != c.isDefinition()) {
+                    ret.insert(c);
+                }
             }
-        }
 
-        if (!ret.isEmpty() || (symbol.kind != CXCursor_VarDecl && symbol.kind != CXCursor_FieldDecl))
-            break; }
-        // fall through
-    default:
-        if (symbol.flags & Symbol::TemplateReference) {
-            for (const String &usr : findTargetUsrs(symbol)) {
-                ret.unite(findByUsr(usr, symbol.location.fileId(), Project::DependsOnArg));
+            if (!ret.isEmpty() || (symbol.kind != CXCursor_VarDecl && symbol.kind != CXCursor_FieldDecl))
+                break; }
+            // fall through
+        default:
+            if (symbol.flags & Symbol::TemplateReference) {
+                for (const String &usr : findTargetUsrs(symbol)) {
+                    ret.unite(findByUsr(usr, symbol.location.fileId(), i == 0 ? Project::DependsOnArg : Project::All));
+                }
+            } else {
+                for (const String &usr : findTargetUsrs(symbol)) {
+                    ret.unite(findByUsr(usr, symbol.location.fileId(), i == 0 ? Project::ArgDependsOn : Project::All));
+                }
             }
-        } else {
-            for (const String &usr : findTargetUsrs(symbol)) {
-                ret.unite(findByUsr(usr, symbol.location.fileId(), Project::ArgDependsOn));
-            }
+            break;
         }
-        break;
     }
 
     return ret;
@@ -2745,6 +2774,10 @@ void Project::removeSource(uint32_t fileId)
         releaseFileIds(job->visited);
         Server::instance()->jobScheduler()->abort(job);
     }
+    Set<uint32_t> file;
+    file.insert(fileId);
+    dirty(fileId);
+    releaseFileIds(file);
     removeDependencies(fileId);
     Path::rmdir(sourceFilePath(fileId));
 }

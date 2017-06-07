@@ -165,19 +165,18 @@ bool Server::init(const Options &options)
             mOptions.defines << Source::Define(String::format<128>("%s(...)", gccBuiltIntVectorFunctionDefines[i]));
         }
 #endif
-    } else {
+    }
 #ifdef CLANG_INCLUDE
-        mOptions.includePaths.append(Source::Include(Source::Include::Type_System, CLANG_INCLUDE_STR));
+    mOptions.includePaths.append(Source::Include(Source::Include::Type_System, CLANG_INCLUDE_STR));
 #endif
 
-        // Iterate until we find an existing directory
-        for (Path systemInclude : sSystemIncludePaths) {
-            systemInclude = systemInclude.ensureTrailingSlash();
-            systemInclude << "clang/" << CLANG_VERSION_STRING << "/include/";
-            if (systemInclude.isDir()) {
-                mOptions.includePaths.append(Source::Include(Source::Include::Type_System, systemInclude));
-                break;
-            }
+    // Iterate until we find an existing directory
+    for (Path systemInclude : sSystemIncludePaths) {
+        systemInclude = systemInclude.ensureTrailingSlash();
+        systemInclude << "clang/" << CLANG_VERSION_STRING << "/include/";
+        if (systemInclude.isDir()) {
+            mOptions.includePaths.append(Source::Include(Source::Include::Type_System, systemInclude));
+            break;
         }
     }
 
@@ -1773,7 +1772,7 @@ void Server::suspend(const std::shared_ptr<QueryMessage> &query, const std::shar
     List<Match> matches;
     if (!query->currentFile().isEmpty())
         matches.push_back(query->currentFile());
-    if (mode == FileOn || mode == FileOff || mode == FileOn)
+    if (mode == FileOn || mode == FileOff || mode == FileToggle)
         matches.push_back(p);
     std::shared_ptr<Project> project;
     if (matches.isEmpty()) {
@@ -1855,6 +1854,7 @@ void Server::setBuffers(const std::shared_ptr<QueryMessage> &query, const std::s
         }
         conn->write<32>("Added %zu buffers", mActiveBuffers.size());
     }
+    mJobScheduler->sort();
     conn->finish();
 }
 

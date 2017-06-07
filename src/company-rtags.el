@@ -1,4 +1,4 @@
-;;; company-rtags.el --- RTags back-end for company
+;;; company-rtags.el --- RTags back-end for company -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2011-2017  Jan Erik Hanssen and Anders Bakken
 
@@ -6,7 +6,7 @@
 ;;         Anders Bakken <agbakken@gmail.com>
 ;; URL: http://rtags.net
 ;; Version: 0.5
-;; Package-Requires: ((emacs "24.3") (company "0.8.1") (rtags "2.9"))
+;; Package-Requires: ((emacs "24.3") (company "0.8.1") (rtags "2.10"))
 
 ;; This file is not part of GNU Emacs.
 
@@ -143,17 +143,24 @@ PREFIX, is prefix type."
             (setq alternatives (cdr alternatives))))
         results)
     ;; this needs to call code-complete-at --synchronous-completions
-    (let ((buf (current-buffer)))
-      (with-temp-buffer
-        (rtags-call-rc :path (buffer-file-name buf)
-                       :unsaved (and (buffer-modified-p buf) buf)
-                       "--code-complete-at" company-rtags-last-completion-location
-                       "--synchronous-completions"
-                       "--elisp"
-                       (if (> (length company-rtags-last-completion-location) 0)
-                           (concat "--code-complete-prefix=" company-rtags-last-completion-prefix)))
-
-        (company-rtags--make-candidates)))))
+    (cons :async (lambda (callback)
+                   (let* ((buf (current-buffer))
+                          (proc-buf (generate-new-buffer "rc"))
+                          (on-call-rc-complete (lambda (_proc msg)
+                                                 (when (string-equal msg "finished\n")
+                                                   (let ((result (with-current-buffer proc-buf
+                                                                   (company-rtags--make-candidates))))
+                                                     (funcall callback result)))
+                                                 (kill-buffer proc-buf))))
+                     (with-current-buffer proc-buf
+                       (rtags-call-rc :path (buffer-file-name buf)
+                                      :unsaved (and (buffer-modified-p buf) buf)
+                                      :async (cons nil on-call-rc-complete)
+                                      "--code-complete-at" company-rtags-last-completion-location
+                                      "--synchronous-completions"
+                                      "--elisp"
+                                      (if (> (length company-rtags-last-completion-location) 0)
+                                          (concat "--code-complete-prefix=" company-rtags-last-completion-prefix)))))))))
 
 (defun company-rtags--meta (candidate insert)
   "Get candidate meta property.
@@ -204,7 +211,7 @@ otherwise 'meta property. See also `company-rtags--meta'."
             (setq all (cdr all)))
           (nreverse completions))))))
 
-(defun company-rtags-code-complete-at-sentinel (process event)
+(defun company-rtags-code-complete-at-sentinel (process _event)
   "Company RTags code complete at sentinel function."
   (let ((status (process-status process)))
     (when (eq status 'exit)

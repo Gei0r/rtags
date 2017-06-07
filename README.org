@@ -62,7 +62,7 @@ M-: (load-file "rtags.el") RET
 Insure =rc= can be found
 
 #+BEGIN_EXAMPLE
-M-: set-variable RET rtags-path RET "../bin" RET
+M-x set-variable RET rtags-path RET "../bin" RET
 #+END_EXAMPLE
 
 Call =rtags-find-symbol-at-point=
@@ -191,11 +191,11 @@ sudo port install clang-3.5
 
   You can also download the sources from here:
 
-  https://andersbakken.github.io/rtags-releases/rtags-2.9.tar.bz2
+  https://andersbakken.github.io/rtags-releases/rtags-2.10.tar.bz2
 
   or
 
-  https://andersbakken.github.io/rtags-releases/rtags-2.9.tar.gz
+  https://andersbakken.github.io/rtags-releases/rtags-2.10.tar.gz
 
 - Building RTags
 
@@ -991,12 +991,24 @@ To turn off the automatic Flycheck syntax checking, set the variable
 (add-hook 'objc-mode-hook #'my-flycheck-rtags-setup)
 #+END_SRC
 
-* Helm support
-  To integrate rtags with helm you need to do the following:
+* Helm integration
+You can use Helm to view the result, to do so, set
+=rtags-display-result-backend= to =helm=. You don't need to load =helm-rtags=,
+we do it. If you have installed *RTags* through MELPA you need to install
+=helm-rtags=.
 
 #+BEGIN_SRC emacs-lisp
-(require 'rtags-helm)
-(setq rtags-use-helm t)
+(setq rtags-display-result-backend 'helm)
+#+END_SRC
+
+* Ivy integration
+You can use Ivy to view the result, to do so, set
+=rtags-display-result-backend= to =ivy=. You don't need to load =ivy-rtags=,
+we do it. If you have installed *RTags* through MELPA you need to install
+=ivy-rtags=.
+
+#+BEGIN_SRC emacs-lisp
+(setq rtags-display-result-backend 'ivy)
 #+END_SRC
 
 * Videos
@@ -1050,6 +1062,67 @@ https://github.com/mattn/vim-rtags
 Note to those maintainers. If you need RTags to behave differently or add
 features to make these other integration's easier (like produce output in
 other formats etc), just drop us a note.
+* Coding style
+  We are always excited to accept bug fixes, improvements and features
+  through code contributions. Feel free to send a pull request for
+  anything you think could be improved upon.
+
+  We'd like contributions to adhere to our coding style.
+
+  The coding style can kinda be deduced from this:
+  #+begin_src sh
+    if (foo) {
+        while (!done) {
+            switch (value) {
+            case 1:
+                break;
+            case 2: {
+                int variable = 12;
+                break; }
+            case 3:
+                break;
+            }
+        }
+        for (auto foo : vars) {
+
+        }
+    }
+
+    void test(const std::string &bar);
+
+    class Foo
+    {
+    private:
+        int mPrivateMember;
+    };
+
+    struct Bar
+    {
+        int publicMember;
+    };
+
+    class A
+    {
+    public:
+        A(int val);
+    private:
+        int mValue;
+    };
+
+    A::A(int val)
+        : mValue(val)
+    {
+    }
+
+    conn->setErrorHandler([](const SocketClient::SharedPtr &, Message::MessageError &&error) {
+            if (error.type == Message::Message_VersionError) {
+                ::error("Wrong version marker. You're probably using mismatched versions of rc and rdm");
+            } else {
+                logDirect(LogLevel::Error, error.text);
+            }
+        });
+
+#+end_src
 
 * Disclaimer
 RTags is still under development and is not the most stable piece of software

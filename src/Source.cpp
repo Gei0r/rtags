@@ -58,7 +58,7 @@ Path Source::compiler() const
 
 String Source::toString() const
 {
-    String ret = String::join(toCommandLine(IncludeCompiler|IncludeSourceFile|IncludeIncludePaths|QuoteDefines|IncludeDefines), ' ');
+    String ret = String::join(toCommandLine(IncludeCompiler|IncludeSourceFile|IncludeIncludePaths|QuoteDefines|IncludeDefines|IncludeOutputFilename), ' ');
     if (buildRootId)
         ret << " Build: " << buildRoot();
     if (compileCommandsFileId)
@@ -300,6 +300,8 @@ static inline bool isCompiler(const Path &fullPath, const List<String> &environm
 {
     if (Server::instance()->options().compilerWrappers.contains(fullPath.fileName()))
         return true;
+    if (strcasestr(fullPath.fileName(), "emacs"))
+        return false;
     static Hash<Path, bool> sCache;
 
     bool ok;
@@ -529,6 +531,7 @@ SourceList Source::parse(const String &cmdLine,
     int32_t sysRootIndex = -1;
     uint32_t buildRootId = 0;
     Path buildRoot;
+    Path outputFilename;
     uint32_t compilerId = 0;
     uint64_t includePathHash = 0;
     bool validCompiler = false;
@@ -586,6 +589,7 @@ SourceList Source::parse(const String &cmdLine,
                     const int eq = def.indexOf('=');
                     if (eq == -1) {
                         define.define = def;
+                        define.flags |= Define::NoValue;
                     } else {
                         define.define = def.left(eq);
                         define.value = def.mid(eq + 1);
@@ -688,7 +692,7 @@ SourceList Source::parse(const String &cmdLine,
                         buildRoot.clear();
                     }
                 }
-                arguments << "-o" << p;
+                outputFilename = std::move(p);
             } else {
                 arguments.append(arg);
                 if (hasValue(arg)) {
@@ -770,6 +774,7 @@ SourceList Source::parse(const String &cmdLine,
             source.includePaths = includePaths;
             source.arguments = arguments;
             source.sysRootIndex = sysRootIndex;
+            source.outputFilename = outputFilename;
             source.language = input.language;
             assert(source.language != NoLanguage);
             ret.emplace_back(std::move(source));
@@ -1003,6 +1008,9 @@ List<String> Source::toCommandLine(Flags<CommandLineFlag> f, bool *usedPch) cons
             }
         }
     }
+    if (f & IncludeOutputFilename && !outputFilename.isEmpty()) {
+        ret << "-o" << outputFilename;
+    }
     if (f & IncludeRTagsConfig) {
         ret << config.value("add-arguments").split(' ');
     }
@@ -1032,6 +1040,7 @@ void Source::encode(Serializer &s, EncodeMode mode) const
     if (mode == EncodeSandbox && !Sandbox::root().isEmpty()) {
         s << Sandbox::encoded(sourceFile()) << fileId << Sandbox::encoded(compiler()) << compilerId
           << Sandbox::encoded(extraCompiler) << Sandbox::encoded(buildRoot()) << buildRootId
+          << compileCommands() << compileCommandsFileId
           << static_cast<uint8_t>(language) << flags << defines;
 
         auto incPaths = includePaths;
