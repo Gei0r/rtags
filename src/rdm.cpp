@@ -20,6 +20,10 @@
 #include <sys/resource.h>
 #endif
 
+#ifdef _WIN32
+#include "windows_mktemp.h"
+#endif
+
 #include "rct/EventLoop.h"
 #include "rct/FileSystemWatcher.h"
 #include "rct/Log.h"
@@ -727,6 +731,7 @@ int main(int argc, char** argv)
     }
 
     if (daemon) {
+#if !defined(_WIN32) || defined(__CYGWIN__) || defined(__MSYS__)
         switch (fork()) {
         case -1:
             fprintf(stderr, "Failed to fork (%d) %s\n", errno, strerror(errno));
@@ -746,6 +751,13 @@ int main(int argc, char** argv)
         default:
             return 0;
         }
+#else
+        // always return with non-zero value
+        // currently '--daemon' option is not supported on Windowns
+        errno = ENOTSUP;
+        fprintf(stderr, "Failed to fork (%d) %s\n", errno, strerror(errno));
+        return 1;
+#endif
     }
 
     if (serverOpts.excludeFilters.isEmpty())
@@ -761,7 +773,9 @@ int main(int argc, char** argv)
 
     if (sigHandler) {
         signal(SIGSEGV, signalHandler);
+        #ifndef _WIN32
         signal(SIGBUS, signalHandler);
+        #endif
         signal(SIGILL, signalHandler);
         signal(SIGABRT, signalHandler);
     }
@@ -796,17 +810,28 @@ int main(int argc, char** argv)
         Path path;
         while (true) {
             strcpy(buf, "/tmp/rtags-test-XXXXXX");
+#ifndef _WIN32 
             if (!mkdtemp(buf)) {
                 fprintf(stderr, "Failed to mkdtemp (%d)\n", errno);
                 return 1;
             }
+#else // _WIN32 
+            if (!windows_mkdtemp(buf)) {
+                fprintf(stderr, "Failed to mkdtemp (%d)\n", errno);
+                return 1;
+            }
+#endif // _WIN32 
             path = buf;
             path.resolve();
             break;
         }
         serverOpts.dataDir = path;
         strcpy(buf, "/tmp/rtags-sock-XXXXXX");
+#ifndef _WIN32 
         const int fd = mkstemp(buf);
+#else // _WIN32 
+        const int fd = windows_mkstemp(buf);
+#endif // _WIN32 
         if (fd == -1) {
             fprintf(stderr, "Failed to mkstemp (%d)\n", errno);
             return 1;

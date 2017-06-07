@@ -15,7 +15,12 @@
 
 #define RTAGS_SINGLE_THREAD
 #include <signal.h>
+#ifndef _WIN32
 #include <syslog.h>
+#else
+#include <stdlib.h>
+void closelog() {} // dummy
+#endif // _WIN32
 
 #include "ClangIndexer.h"
 #include "Project.h"
@@ -71,15 +76,27 @@ int main(int argc, char **argv)
         }
     }
 
+    #ifndef _WIN32
     setenv("LIBCLANG_NOTHREADS", "1", 0);
+    #else
+    if (getenv("LIBCLANG_NOTHREADS") == NULL)
+        _putenv_s("LIBCLANG_NOTHREADS", "1");
+    #endif
     signal(SIGSEGV, sigHandler);
     signal(SIGABRT, sigHandler);
+    #ifndef _WIN32
+    // SIGBUS is not supported on Windows.
     signal(SIGBUS, sigHandler);
+    #endif
 
     Flags<LogFlag> logFlags = LogStderr;
     std::shared_ptr<SyslogCloser> closer;
     if (ClangIndexer::serverOpts() & Server::RPLogToSyslog) {
+        #ifndef _WIN32
         logFlags |= LogSyslog;
+        #else
+        logFlags |= LogStderr;
+        #endif
         closer.reset(new SyslogCloser);
     }
     initLogging(argv[0], logFlags, logLevel);

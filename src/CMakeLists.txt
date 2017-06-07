@@ -91,6 +91,13 @@ if (CMAKE_BUILD_TYPE MATCHES "Debug")
     set(RCT_EVENTLOOP_CALLBACK_TIME_THRESHOLD 2000)
 endif ()
 
+
+# normalize windows style path
+if (CMAKE_SYSTEM_NAME MATCHES "Windows")
+    string(REPLACE "\\" "/" LIBCLANG_LIBDIR "${LIBCLANG_LIBDIR}")
+    string(REPLACE "\\" "/" RTAGS_SOURCE_DIR "${RTAGS_SOURCE_DIR}")
+endif()
+
 add_definitions(
     "-DRTAGS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
     "-DCLANG_LIBDIR=${LIBCLANG_LIBDIR}"
@@ -141,6 +148,10 @@ set(RTAGS_SOURCES
     Token.cpp
     TokensJob.cpp
     ${RCT_SOURCES})
+
+if (CMAKE_SYSTEM_NAME MATCHES "Windows")
+    list(APPEND RTAGS_SOURCES windows_mktemp.cpp)
+endif ()
 
 if (LUA_ENABLED)
     list(APPEND RTAGS_SOURCES AST.cpp)
