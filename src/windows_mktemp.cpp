@@ -1,3 +1,18 @@
+/*
+ * This was taken from https://stackoverflow.com/a/6036308/2192139, which in
+ * turn claims to be taken from the wcecompat library at
+ * https://github.com/kromain/wcecompat (dead link) from file
+ * src/stdlib_extras.cpp.
+ */
+
+/* mkstemp extracted from libc/sysdeps/posix/tempname.c.  Copyright
+   (C) 1991-1999, 2000, 2001, 2006 Free Software Foundation, Inc.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.  */
+
 #include "windows_mktemp.h"
 #include <rct/WindowsUnicodeConversion.h>
 #include <fcntl.h>
