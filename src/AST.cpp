@@ -24,6 +24,7 @@ struct UserData {
     List<AST::Cursor> parents;
     AST *ast;
 };
+
 CXChildVisitResult AST::visitor(CXCursor cursor, CXCursor, CXClientData u)
 {
     UserData *userData = reinterpret_cast<UserData*>(u);

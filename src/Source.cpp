@@ -21,6 +21,10 @@
 #include "RTags.h"
 #include "Server.h"
 
+#ifdef _WIN32
+#include <windows_mktemp.h>
+#endif // _WIN32
+
 void Source::clear()
 {
     fileId = compilerId = buildRootId = compileCommandsFileId = 0;
@@ -305,7 +309,11 @@ static inline bool isCompiler(const Path &fullPath, const List<String> &environm
 
     char path[PATH_MAX];
     strcpy(path, "/tmp/rtags-compiler-check-XXXXXX.c");
+    #ifndef _WIN32
     const int fd = mkstemps(path, 2);
+    #else
+    const int fd = windows_mkstemps(path, 2);
+    #endif
     if (fd == -1) {
         error("Failed to make temporary file errno: %d", errno);
         return false;

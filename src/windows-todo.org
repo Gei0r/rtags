@@ -5,37 +5,127 @@ Useful Link: [[http://66.165.136.43/dictionary/index.php][Unix to Windows Portin
 
 * Errors by cause
 
-** TODO no connectUnix() in class [[file:rct/rct/Connection.h][Connection]] (rct)
+** DONE no connectUnix() in class [[file:rct/rct/Connection.h][Connection]] (rct)
+   CLOSED: [2017-05-28 Sun 21:05]
 
-We need to find a way to implement this on Windows.
+   We need to find a way to implement this on Windows.
 
-I think using Windows pipes is *not* a good idea, because they are difficult to
-use. I suggest falling back to TCP.
+   I think using Windows pipes is *not* a good idea, because they are difficult to
+   use. I suggest falling back to TCP.
 
-Unix pipes work with special files. Maybe we can emulate this behavior on
-Windows by implementing connectUnix() to read the tcp connection parameters
-(i.e., the port) from the file representing the pipe.
+   Unix pipes work with special files. Maybe we can emulate this behavior on
+   Windows by implementing connectUnix() to read the tcp connection parameters
+   (i.e., the port) from the file representing the pipe.
 
 *** Occurences
-- [[file:ClangIndexer.cpp::197][ClangIndex.cpp Line 197]]
-- [[file:RClient.cpp::404][RClient.cpp Line 404]]
 
-** TODO arpa/inet.h not found
+    - [[file:ClangIndexer.cpp::197][ClangIndex.cpp Line 197]]
+    - [[file:RClient.cpp][RClient.cpp]]
 
-Replace with windows-specific include (i.e. Winsock2.h). Might also need to
-#define WIN32_LEAN_AND_MEAN.
+*** Solution
+
+    Falling back to TCP on Windows.
+
+    At server side. use =SocketServer::listen(0)= internally.
+    listen on port zero to let OS pick a port available, and than write the
+    port number (pick by the OS) back to the file specified by =path=.
+
+    At client side, while connect to a file, first read the port number from file,
+    then connect to =localhost= with that port number.
+
+    - implemented functions:
+      - bool SocketServer::listen(const Path &path)
+      - bool SocketClient::connect(const String& path)
+
+** DONE arpa/inet.h not found
+   CLOSED: [2017-05-28 Sun 21:05]
+
+   Replace with windows-specific include (i.e. Winsock2.h). Might also need to
+   #define WIN32_LEAN_AND_MEAN.
 
 *** Occurrences
-- [[file:Server.cpp::20][Server.cpp]]
+    - [[file:Server.cpp::20][Server.cpp]]
 
-** TODO mkstemps not declared
+*** Solution
+    Replace with windows-specific include =Winsock2.h=.
 
-mktemps() creates a temporary file that is guaranteed to be unique and opens
-it.
+** DONE mkstemps and mkdtemp not declared
+   CLOSED: [2017-05-28 Sun 21:05]
 
-Windows has _mktemp_s() and _wmktemp_s(). Check whether these can be used and
-put them in. Should use the wide function in connection with rct's
-WindowsUnicodeConversions.
+   mktemps() creates a temporary file that is guaranteed to be unique and opens
+   it.
+
+   Windows has _mktemp_s() and _wmktemp_s(). Check whether these can be used and
+   put them in. Should use the wide function in connection with rct's
+   WindowsUnicodeConversions.
 
 *** Occurences
-- [[file:Source.cpp::308][Source.cpp Line 308]]
+    - [[file:Source.cpp][Source.cpp]]
+    - [[file:rdm.cpp][rdm.cpp]]
+
+** DONE invalid argument in function getNameHelper
+   CLOSED: [2017-05-28 Sun 21:31]
+
+   Invalid conversion from =int (__attribute__((__stdcall__))*) (SOCKET, sockaddr *, int)=
+   to =GetNameFunc {aka int (*)(unsigned int, sockaddr *, int *)}= while initializing
+   argument 2 of 'String getNameHelper(int, GetNameFunc, uint16_t *)'
+
+*** Occurences
+    - [[file:rct/rct/SocketClient.cpp::372][SocketClient.cpp Line 372]]
+
+*** Current solution
+
+    Add =WINAPI= into the signature of =GetNameFunc= in Windows.
+
+** DONE warning of unknown conversion type charecter 'z' in format
+   CLOSED: [2017-05-28 Sun 21:51]
+
+*** Occurences
+    - [[file:rct/rct/String.cpp][String.cpp]]
+
+*** Current solution
+
+    In macro =RCT_PRINTF_WARNING=, using =__MINGW_PRINTF_FORMAT= instead of =__printf__=
+    for format checking. Solution for =msvc= still needed.
+
+*** Reference
+    [[https://stackoverflow.com/questions/10678124/mingw-gcc-unknown-conversion-type-character-h-snprintf][StackOverflow: MinGW GCC: “Unknown conversion type character 'h'” (snprintf)]]
+
+** DONE fork, setsid not declared
+   CLOSED: [2017-05-28 Sun 22:09]
+
+   When option =--daemon= is specified in arguments of =rdm=, it forks and starts a daemon in background.
+
+*** Occurences
+    - [[file:rdm.cpp::825][rdm.cpp Line 825]]
+
+*** Solution
+
+    Currently option =--daemon= is not supported on Windows.
+    When option =--daemon= specified, always return with a non-zero value to indcate.
+
+** DONE Process::findCommand not defined on windows
+   CLOSED: [2017-05-28 Sun 22:09]
+
+   When option =--daemon= is specified in arguments of =rdm=, it forks and starts a
+   daemon in background.
+
+*** Occurences
+    - [[file:rct/rct/Process_Windows.cpp][Process_Windows.cpp]]
+
+*** Solution
+
+    Define this function in =Process_Windows.cpp=, implementation copied from =Process.cpp=,
+    with some minor modifications.
+
+** DONE unknown escaped sequence in expension of macro 'TO_STR(RTAGS_SOURCE_DIR)'
+   CLOSED: [2017-05-29 Mon 21:48]
+
+   Windows uses backslash '\' as directory separator by default, thus causing this warning while
+   making it into a C-string-literal by macro 'TO_STR'.
+
+*** Occurences
+    - [[file:AST.cpp][AST.cpp]]
+
+*** Solution
+    Normalize 'RTAGS_SOURCE_DIR', replace backslash with slash, in CMakeLists.txt .
