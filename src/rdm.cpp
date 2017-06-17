@@ -802,7 +802,11 @@ int main(int argc, char** argv)
 #endif
 
     EventLoop::SharedPtr loop(new EventLoop);
-    loop->init(EventLoop::MainEventLoop|EventLoop::EnableSigIntHandler|EventLoop::EnableSigTermHandler);
+    if(!loop->init(EventLoop::MainEventLoop|EventLoop::EnableSigIntHandler|EventLoop::EnableSigTermHandler))
+    {
+        ::error() << "Could not initialize event loop!";
+        return 1;
+    }
 
     auto server = std::make_shared<Server>();
     if (!serverOpts.tests.isEmpty()) {
