@@ -157,7 +157,7 @@ int windows_mkostemps(char *tmpl, int suffixlen, int flags)
 
     len = strlen (tmpl);
     xs_begin_pos = len - 6 - suffixlen;
-    if (xs_begin_pos < 0 || strcmp (&tmpl[xs_begin_pos], "XXXXXX"))
+    if (xs_begin_pos < 0 || strncmp (&tmpl[xs_begin_pos], "XXXXXX", XS_COUNT))
     {
         errno = EINVAL;
         return -1;

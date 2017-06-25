@@ -315,8 +315,9 @@ static inline bool isCompiler(const Path &fullPath, const List<String> &environm
     if (ok)
         return ret;
 
+    const Path destination = Path::tempDir() + "rtags-compiler-check-XXXXXX.c";
     char path[PATH_MAX];
-    strcpy(path, "/tmp/rtags-compiler-check-XXXXXX.c");
+    strcpy(path, destination.c_str());
     #ifndef _WIN32
     const int fd = mkstemps(path, 2);
     #else
@@ -471,8 +472,13 @@ SourceList Source::parse(const String &cmdLine,
 {
     List<Path> pathEnvironment;
     for (const String &env : environment) {
-        if (env.startsWith("PATH=")) {
-            pathEnvironment = env.mid(5).split(':', String::SkipEmpty);
+        if (env.startsWith(String("PATH="), String::CaseInsensitive)) {
+#ifdef _WIN32
+            const char PATH_SPLIT = ';';
+#else
+            const char PATH_SPLIT = ':';
+#endif
+            pathEnvironment = env.mid(5).split(PATH_SPLIT, String::SkipEmpty);
             break;
         }
     }
