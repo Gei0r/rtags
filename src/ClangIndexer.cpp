@@ -177,6 +177,7 @@ bool ClangIndexer::exec(const String &data)
             error("Bad fileId");
             return false;
         }
+        break;
     default:
         for (size_t i=1; i<mSources.size(); ++i) {
             if (!mSources.at(i).fileId || mSources.at(i).fileId != mSources.front().fileId) {
@@ -2073,10 +2074,6 @@ bool ClangIndexer::writeFiles(const Path &root, String &error)
         bytesWritten += fprintf(f, "%s\n%s\n", p.constData(), args.constData());
     }
     bytesWritten += fprintf(f, "Indexed at %llu\n", static_cast<unsigned long long>(mIndexDataMessage.parseTime()));
-
-    if (!templateSpecializationTargets.isEmpty()) {
-
-    }
 
     fclose(f);
     mIndexDataMessage.setBytesWritten(bytesWritten);

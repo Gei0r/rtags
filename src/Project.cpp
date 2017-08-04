@@ -1316,6 +1316,10 @@ void Project::findSymbols(const String &unencoded,
     const String string = Sandbox::encoded(unencoded);
     const bool wildcard = queryFlags & QueryMessage::WildcardSymbolNames && (string.contains('*') || string.contains('?'));
     const bool caseInsensitive = queryFlags & QueryMessage::MatchCaseInsensitive;
+    std::regex rx;
+    const bool regex = queryFlags & QueryMessage::MatchRegex;
+    if (regex)
+        rx.assign(string.ref());
     const String::CaseSensitivity cs = caseInsensitive ? String::CaseInsensitive : String::CaseSensitive;
     String lowerBound;
     if (wildcard) {
@@ -1328,11 +1332,11 @@ void Project::findSymbols(const String &unencoded,
                 }
             }
         }
-    } else if (!caseInsensitive) {
+    } else if (!caseInsensitive && !regex) {
         lowerBound = string;
     }
 
-    auto processFile = [this, &lowerBound, &string, wildcard, cs, &inserter](uint32_t file) {
+    auto processFile = [this, &lowerBound, &string, wildcard, regex, &rx, cs, &inserter](uint32_t file) {
         auto symNames = openSymbolNames(file);
         if (!symNames)
             return;
@@ -1357,13 +1361,17 @@ void Project::findSymbols(const String &unencoded,
                         continue;
                     }
                     type = Wildcard;
+                } else if (regex) {
+                    if (!std::regex_search(entry.ref(), rx)) {
+                        continue;
+                    }
+                    type = Regexp;
                 } else if (!entry.startsWith(string, cs)) {
                     if (cs == String::CaseInsensitive) {
                         continue;
                     } else {
                         break;
                     }
-                    type = StartsWith;
                 } else if (entry.size() != string.size()) {
                     type = StartsWith;
                 }
@@ -2432,7 +2440,7 @@ uint32_t Project::fileMapOptions() const
 void Project::fixPCH(Source &source)
 {
     for (Source::Include &inc : source.includePaths) {
-        if (inc.type == Source::Include::Type_FileInclude && inc.isPch()) {
+        if (inc.type == Source::Include::Type_PCH) {
             const uint32_t fileId = Location::insertFile(inc.path);
             inc.path = RTags::encodeSourceFilePath(Server::instance()->options().dataDir, mPath, fileId) + "pch.h";
             error() << "PREPARING" << inc.path;

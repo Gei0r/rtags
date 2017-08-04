@@ -106,6 +106,8 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
     { RClient::DumpCompileCommands, "dump-compile-commands", 0, CommandLineParser::NoValue, "Dump compilation database for project." },
     { RClient::SetBuffers, "set-buffers", 0, CommandLineParser::Optional, "Set active buffers (list of filenames for active buffers in editor)." },
     { RClient::ListBuffers, "list-buffers", 0, CommandLineParser::NoValue, "List active buffers." },
+    { RClient::AddBuffers, "add-buffers", 0, CommandLineParser::Required, "Add additional buffers." },
+    { RClient::RemoveBuffers, "remove-buffers", 0, CommandLineParser::Required, "Remove buffers." },
     { RClient::ListCursorKinds, "list-cursor-kinds", 0, CommandLineParser::NoValue, "List spelling for known cursor kinds." },
     { RClient::ClassHierarchy, "class-hierarchy", 0, CommandLineParser::Required, "Dump class hierarcy for struct/class at location." },
     { RClient::DebugLocations, "debug-locations", 0, CommandLineParser::Optional, "Manipulate debug locations." },
@@ -133,7 +135,7 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
     { RClient::Elisp, "elisp", 'Y', CommandLineParser::NoValue, "Output elisp: (list \"one\" \"two\" ...)." },
     { RClient::JSON, "json", 0, CommandLineParser::NoValue, "Output json." },
     { RClient::Diagnostics, "diagnostics", 'm', CommandLineParser::NoValue, "Receive async formatted diagnostics from rdm." },
-    { RClient::MatchRegex, "match-regexp", 'Z', CommandLineParser::NoValue, "Treat various text patterns as regexps (-P, -i, -V)." },
+    { RClient::MatchRegex, "match-regexp", 'Z', CommandLineParser::NoValue, "Treat various text patterns as regexps (-P, -i, -V, -F)." },
     { RClient::MatchCaseInsensitive, "match-icase", 'I', CommandLineParser::NoValue, "Match case insensitively" },
     { RClient::AbsolutePath, "absolute-path", 'K', CommandLineParser::NoValue, "Print files with absolute path." },
     { RClient::SocketFile, "socket-file", 'n', CommandLineParser::Required, "Use this socket file (default ~/.rdm)." },
@@ -450,7 +452,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
                                                  String &&value,
                                                  size_t &idx,
                                                  const List<String> &args)> cb;
-    cb = [this, &logFlags, &projectCommands, &logFile](RClient::OptionType type, String &&value, size_t &idx, const List<String> &arguments) -> CommandLineParser::ParseStatus {
+    cb = [this, &projectCommands, &logFile](RClient::OptionType type, String &&value, size_t &idx, const List<String> &arguments) -> CommandLineParser::ParseStatus {
         switch (type) {
         case None:
         case NumOptions: {
@@ -967,7 +969,9 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             print(CXCursor_FirstPreprocessing, CXCursor_LastPreprocessing);
             mExitCode = RTags::Success;
             return { String(), CommandLineParser::Parse_Ok }; }
-        case SetBuffers: {
+        case SetBuffers:
+        case AddBuffers:
+        case RemoveBuffers: {
             String arg;
             if (!value.isEmpty()) {
                 arg = std::move(value);
@@ -1002,6 +1006,12 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
                     }
                 }
                 Serializer serializer(encoded);
+                switch (type) {
+                case AddBuffers: serializer << 1; break;
+                case SetBuffers: serializer << 0; break;
+                case RemoveBuffers: serializer << -1; break;
+                default: assert(0); break;
+                }
                 serializer << paths;
             }
             addQuery(QueryMessage::SetBuffers, std::move(encoded));
