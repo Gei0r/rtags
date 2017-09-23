@@ -20,6 +20,10 @@
 #include <functional>
 #include <limits>
 
+#ifndef _WIN32
+#  include <sys/file.h>
+#endif
+
 #include "Location.h"
 #include "rct/Serializer.h"
 #include "rct/MemoryMappedFile.h"
@@ -299,6 +303,25 @@ public:
 #endif
     }
 private:
+
+#ifndef _WIN32
+    enum Mode {
+        Read = F_RDLCK,
+        Write = F_WRLCK,
+        Unlock = F_UNLCK
+    };
+    static bool lock(int fd, Mode mode)
+    {
+        struct flock fl;
+        memset(&fl, 0, sizeof(fl));
+        fl.l_type = mode;
+        fl.l_whence = SEEK_SET;
+        fl.l_pid = getpid();
+        int ret;
+        eintrwrap(ret, fcntl(fd, F_SETLKW, &fl));
+        return ret != -1;
+    }
+#endif
 
     const char *valuesSegment() const { return mFile.filePtr<char>() + mValuesOffset; }
     const char *keysSegment() const
