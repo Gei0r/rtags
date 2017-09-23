@@ -276,6 +276,17 @@ bool ClangIndexer::exec(const String &data)
     if (getenv("RDM_DEBUG_INDEXERMESSAGE"))
         error() << "Send took" << sw.elapsed() << "for" << mSourceFile;
 
+    if (mSerializeTU) {
+        Path path = mDataDir + "tucache/";
+        Path::mkdir(path, Path::Recursive);
+        path << mSources.front().fileId;
+        Path tmp = path;
+        tmp << ".tmp";
+        StopWatch sw2;
+        clang_saveTranslationUnit(mSerializeTU->unit, tmp.constData(), clang_defaultSaveOptions(mSerializeTU->unit));
+        rename(tmp.constData(), path.constData());
+        error() << "SAVED CACHED FILE FOR" << mSourceFile << path << sw2.elapsed();
+    }
     return true;
 }
 
@@ -475,6 +486,7 @@ String ClangIndexer::addNamePermutations(const CXCursor &cursor, Location locati
                 // namespaces can include all namespaces in their symbolname
                 if (originalKind == CXCursor_Namespace)
                     break;
+                RCT_FALL_THROUGH;
             default:
                 cutoff = pos;
                 break;
@@ -777,10 +789,16 @@ CXChildVisitResult ClangIndexer::indexVisitor(CXCursor cursor)
                 && (clang_getCursorKind(mLastCursor) == CXCursor_TypeRef || clang_getCursorKind(mLastCursor) == CXCursor_TemplateRef)) {
                 handled = true;
                 for (int pos = mParents.size() - 1; pos >= 0; --pos) {
-                    const CXCursorKind k = clang_getCursorKind(mParents[pos]);
+                    const CXCursor &parent = mParents[pos];
+                    const CXCursorKind k = clang_getCursorKind(parent);
                     if (k == CXCursor_VarDecl) {
                         handled = false;
                         break;
+                    } else if (k == CXCursor_CallExpr) {
+                        if (!clang_isInvalid(clang_getCursorKind(clang_getCursorReferenced(parent)))) {
+                            handled = false;
+                            break;
+                        }
                     } else if (k != CXCursor_UnexposedExpr) {
                         break;
                     }
@@ -1853,6 +1871,17 @@ bool ClangIndexer::parse()
         commandLineFlags |= Source::PCHEnabled;
 
     Flags<CXTranslationUnit_Flags> flags = CXTranslationUnit_DetailedPreprocessingRecord;
+    if (mIndexDataMessage.indexerJobFlags() & IndexerJob::Active) {
+        flags |= CXTranslationUnit_PrecompiledPreamble;
+        flags |= CXTranslationUnit_ForSerialization;
+#if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 32)
+        flags |= CXTranslationUnit_CreatePreambleOnFirstParse;
+#endif
+    } else {
+#if CINDEX_VERSION_MINOR > 33
+        flags |= CXTranslationUnit_KeepGoing;
+#endif
+    }
     bool pch;
     switch (mSources.front().language) {
     case Source::CPlusPlus11Header:
@@ -1889,12 +1918,30 @@ bool ClangIndexer::parse()
         if (usedPch)
             mIndexDataMessage.setFlag(IndexDataMessage::UsedPCH);
 
-        auto unit = RTags::TranslationUnit::create(mSourceFile, args, &unsavedFiles[0], unsavedIndex, flags);
+        std::shared_ptr<RTags::TranslationUnit> unit;
+        if (mIndexDataMessage.indexerJobFlags() & IndexerJob::Active && serverOpts() & Server::TranslationUnitCache) {
+            Path path = mDataDir + "tucache/";
+            Path::mkdir(path, Path::Recursive);
+            path << mSources.front().fileId;
+            StopWatch sw2;
+            unit = RTags::TranslationUnit::load(path);
+            if (unit) {
+                error() << "loaded cached unit in" << sw2.restart();
+                if (!unit->reparse(&unsavedFiles[0], unsavedIndex)) {
+                    error() << "Failed to reparse";
+                    unit.reset();
+                } else {
+                    error() << "reparsed cached unit in" << sw2.restart();
+                }
+            }
+        }
+
+        if (!unit)
+            unit = RTags::TranslationUnit::create(mSourceFile, args, &unsavedFiles[0], unsavedIndex, flags);
         mTranslationUnits.push_back(unit);
 
         warning() << "CI::parse loading unit:" << unit->clangLine << " " << (unit->unit != 0);
         if (unit->unit) {
-            ok = true;
             if (pch && ClangIndexer::serverOpts() & Server::PCHEnabled) {
                 Path path = RTags::encodeSourceFilePath(mDataDir, mProject, source.fileId);
                 Path::mkdir(path, Path::Recursive);
@@ -1904,7 +1951,11 @@ bool ClangIndexer::parse()
                 clang_saveTranslationUnit(unit->unit, tmp.constData(), clang_defaultSaveOptions(unit->unit));
                 rename(tmp.constData(), path.constData());
                 warning() << "SAVED PCH" << path;
+            } else if (!mSerializeTU && mIndexDataMessage.indexerJobFlags() & IndexerJob::Active && serverOpts() & Server::TranslationUnitCache) {
+                mSerializeTU = unit;
             }
+
+            ok = true;
             mParseDuration = sw.elapsed();
         } else {
             error() << "Failed to parse" << unit->clangLine;
@@ -1962,8 +2013,10 @@ bool ClangIndexer::writeFiles(const Path &root, String &error)
             FILE *f = fopen((unitRoot + "/info").constData(), "w");
             if (!f)
                 return false;
+            Path rpath = path;
+            Sandbox::encode(rpath);
             bytesWritten += fprintf(f, "%s\nIndexed by %s at %llu\n",
-                                    path.constData(),
+                                    rpath.constData(),
                                     p.constData(), static_cast<unsigned long long>(mIndexDataMessage.parseTime()));
             fclose(f);
         }

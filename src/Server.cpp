@@ -1873,6 +1873,17 @@ void Server::setBuffers(const std::shared_ptr<QueryMessage> &query, const std::s
         } else {
             conn->write<32>("We still have %zu buffers", oldCount);
         }
+
+        if (mOptions.options & TranslationUnitCache && mode <= 0) {
+            const Path cacheDir = mOptions.dataDir + "tucache";
+            cacheDir.visit([this](const Path &path) -> Path::VisitResult {
+                    if (path.isFile() && !mActiveBuffers.contains(std::stol(path.fileName()))) {
+                        error() << "Don't want" << path << "no more" << Location::path(std::stol(path.fileName()));
+                        Path::rm(path);
+                    }
+                    return Path::Continue;
+                });
+        }
     }
     mJobScheduler->sort();
     conn->finish();
@@ -2013,7 +2024,11 @@ bool Server::load()
 
         Sandbox::decode(pathsToIds);
 
-        Location::init(pathsToIds);
+        if (!Location::init(pathsToIds)) {
+            error() << "Corrupted file ids. You have to start over";
+            clearProjects(Clear_All);
+            return true;
+        }
         List<Path> projects = mOptions.dataDir.files(Path::Directory);
         for (size_t i=0; i<projects.size(); ++i) {
             const Path &file = projects.at(i);

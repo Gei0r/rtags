@@ -68,7 +68,7 @@
 ;; Constants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defconst rtags-protocol-version 124)
-(defconst rtags-package-version "2.12")
+(defconst rtags-package-version "2.14")
 (defconst rtags-popup-available (require 'popup nil t))
 (defconst rtags-supported-major-modes '(c-mode c++-mode objc-mode) "Major modes RTags supports.")
 (defconst rtags-verbose-results-delimiter "------------------------------------------")
@@ -177,7 +177,7 @@
 
 (defcustom rtags-reindex-on-save nil
   "Explicitly reindex files on save.
-This is only be useful, if your file system watching is not working."
+This is only useful if your file system watching is not working."
   :group 'rtags
   :type 'boolean
   :safe 'booleanp)
@@ -359,6 +359,11 @@ the Customize interface, `rtags-set-periodic-reparse-timeout',
   :group 'rtags
   :type 'string
   :safe 'stringp)
+
+(defcustom rtags-error-message-function 'rtags-error-message-default
+  "Function rtags.el calls to produce errors messages"
+  :group 'rtags
+  :type 'function)
 
 (defcustom rtags-find-file-prompt "Find files"
   "What prompt to use for ‘rtags-find-file’."
@@ -1292,7 +1297,7 @@ to only call this when `rtags-socket-file' is defined.
                        (error (concat "RTags protocol version mismatch. This is usually caused by getting rtags.el from melpa\n"
                                       "and installing a new rtags build that modified the protocol. They need to be in sync."))))
                     ((= result rtags-exit-code-not-indexed)
-                     (unless silent
+                     (unless noerror
                        (message "%s not indexed" (or path "buffer")))
                      (erase-buffer)
                      (setq rtags-last-request-not-indexed t))
@@ -1409,7 +1414,7 @@ Uses `completing-read' to ask for the project."
     (let* ((path (rtags-buffer-file-name))
            (object (with-temp-buffer
                      (and location
-                          (rtags-call-rc :path path :noerror t :silent-query silent :silent silent "-U" location "--elisp"
+                          (rtags-call-rc :path path :noerror t :silent-query silent "-U" location "--elisp"
                                          (unless relative-filenames "-K")
                                          (when parents "--symbol-info-include-parents")
                                          (when references "--symbol-info-include-references")
@@ -1964,6 +1969,7 @@ instead of file from `current-buffer'.
           (rtags-delete-rtags-windows)
           (rtags-location-stack-push)
           (rtags-switch-to-buffer ref-buffer)
+          (setq rtags-results-buffer-type 'references-tree)
           (rtags-references-tree-mode)
           (setq rtags-current-project project)
           (setq buffer-read-only nil)
@@ -2055,7 +2061,7 @@ instead of file from `current-buffer'.
         (goto-char (point-min))
         (insert "Functions called from: " (cdr (assoc 'location container)) " " (cdr (assoc 'symbolName container)) "\n")
         (goto-char (point-min))
-        (rtags-handle-results-buffer nil nil nil file)))))
+        (rtags-handle-results-buffer nil nil nil file 'functions-called-by-this-function)))))
 
 ;;;###autoload
 (defun rtags-find-all-functions-called-this-function ()
@@ -2517,19 +2523,24 @@ If called with prefix, open first match in other window"
                            (rtags-call-rc :path-filter pathfilter :path fn "-F" tagname "--definition-only" "-M" "1" "--dependency-filter" fn)
                            (when (= (rtags-buffer-lines) 0)
                              (rtags-call-rc :path fn :path-filter pathfilter "-F" tagname "-M" "1" "--dependency-filter" fn)))
-                         (cons (buffer-string) (rtags-buffer-lines)))))
+                         (cons (buffer-string) (rtags-buffer-lines))))
+              (buffer (get-buffer rtags-buffer-name)))
+          (when (and buffer
+                     (eq (buffer-local-value 'rtags-results-buffer-type buffer) 'find-symbol-at-point))
+            (rtags-delete-rtags-windows)
+            (kill-buffer buffer))
           (cond ((= (cdr results) 0) nil)
                 ((= (cdr results) 1)
                  (with-temp-buffer
                    (insert (car results))
                    (goto-char (point-min))
-                   (rtags-handle-results-buffer tagname nil nil fn otherwindow)))
+                   (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-symbol-at-point)))
                 (t
                  (rtags-delete-rtags-windows)
                  (with-current-buffer (rtags-get-buffer)
                    (insert (car results))
                    (goto-char (point-min))
-                   (rtags-handle-results-buffer tagname nil nil fn otherwindow)))))))))
+                   (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-symbol-at-point)))))))))
 
 ;;;###autoload
 (defun rtags-find-references-at-point (&optional prefix)
@@ -2553,7 +2564,7 @@ treated as references to the referenced symbol."
         (with-current-buffer (rtags-get-buffer)
           (rtags-call-rc :path fn :path-filter pathfilter "-r" arg
                          (unless rtags-sort-references-by-input "--no-sort-references-by-input"))
-          (rtags-handle-results-buffer tagname nil nil fn otherwindow))))))
+          (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-references-at-point))))))
 
 ;;;###autoload
 (defun rtags-find-virtuals-at-point (&optional prefix)
@@ -2576,7 +2587,7 @@ This includes both declarations and definitions."
                          "-k"
                          (unless rtags-sort-references-by-input "--no-sort-references-by-input")
                          (unless rtags-print-filenames-relative "-K"))
-          (rtags-handle-results-buffer tagname nil nil fn otherwindow))))))
+          (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-virtuals-at-point))))))
 
 ;;;###autoload
 (defun rtags-find-all-references-at-point (&optional prefix)
@@ -2597,7 +2608,7 @@ This includes both declarations and definitions."
                          "-e"
                          (unless rtags-sort-references-by-input "--no-sort-references-by-input")
                          (unless rtags-print-filenames-relative "-K"))
-          (rtags-handle-results-buffer tagname nil nil fn otherwindow))))))
+          (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-all-references-at-point))))))
 
 ;;;###autoload
 (defun rtags-guess-function-at-point ()
@@ -2611,7 +2622,7 @@ This includes both declarations and definitions."
         (rtags-reparse-file-if-needed)
         (with-current-buffer (rtags-get-buffer)
           (rtags-call-rc :path fn "-G" "-F" token)
-          (rtags-handle-results-buffer token t nil fn))))))
+          (rtags-handle-results-buffer token t nil fn 'guess-function-at-point))))))
 
 (defun rtags-current-token ()
   (save-excursion
@@ -3460,13 +3471,18 @@ This includes both declarations and definitions."
     (when startpos
       (goto-char startpos))))
 
-(defun rtags-handle-results-buffer (&optional token noautojump quiet path other-window)
+(defvar rtags-results-buffer-type nil)
+(make-variable-buffer-local 'rtags-results-buffer-type)
+(put 'rtags-results-buffer-type 'permanent-local t)
+
+(defun rtags-handle-results-buffer (&optional token noautojump quiet path other-window type)
   "Handle results from RTags. Should be called with the results buffer
 as current.
 
 The option OTHER-WINDOW is only applicable if RTags is configured not to
 show the results immediately. If non-nil, show the first match in the
 other window instead of the current one."
+  (setq rtags-results-buffer-type type)
   (rtags-reset-bookmarks)
   (set-text-properties (point-min) (point-max) nil)
   (when path
@@ -4087,7 +4103,7 @@ definition."
                      (when rtags-wildcard-symbol-names "--wildcard-symbol-names")
                      (when rtags-symbolnames-case-insensitive "-I")
                      (unless rtags-print-filenames-relative "-K"))
-      (rtags-handle-results-buffer tagname nil nil path other-window))))
+      (rtags-handle-results-buffer tagname nil nil path other-window 'find-symbols-by-name-internal))))
 
 (defun rtags-symbolname-completion-get (string)
   (with-temp-buffer
@@ -4569,11 +4585,12 @@ set of buffers we are visiting."
           (setq rtags-pending-remove-buffers-timer
                 (run-with-idle-timer 1 nil
                                      (lambda ()
+                                       (setq rtags-pending-remove-buffers-timer nil)
                                        (with-temp-buffer
-                                         (insert (mapconcat 'identity rtags-pending-dead-buffers "\n"))
-                                         (setq rtags-pending-dead-buffers nil)
-                                         (setq rtags-pending-remove-buffers-timer nil)
-                                         (rtags-call-rc :noerror t :silent-query t :unsaved (current-buffer) "--remove-buffers" "-")))))))))
+                                         (when rtags-pending-dead-buffers
+                                           (insert (mapconcat 'identity rtags-pending-dead-buffers "\n"))
+                                           (setq rtags-pending-dead-buffers nil)
+                                           (rtags-call-rc :noerror t :silent-query t :unsaved (current-buffer) "--remove-buffers" "-"))))))))))
   t)
 
 (add-hook 'kill-buffer-hook 'rtags-kill-buffer-hook)
@@ -4600,11 +4617,12 @@ so it knows what files may be queried which helps with responsiveness.
   (interactive)
   (condition-case nil
       (let ((name (rtags-buffer-file-name)))
-        (and rtags-enabled
-             name
-             (funcall rtags-is-indexable (current-buffer))
-             (with-temp-buffer
-               (rtags-call-rc :noerror t :output nil :silent-query t "--add-buffers" name))))
+        (when (and rtags-enabled
+                   name
+                   (funcall rtags-is-indexable (current-buffer)))
+          (setq rtags-pending-dead-buffers (delete name rtags-pending-dead-buffers))
+          (with-temp-buffer
+            (rtags-call-rc :noerror t :output nil :silent-query t "--add-buffers" name))))
     (error
      t))
     t)
@@ -5066,6 +5084,36 @@ the user enter missing field manually."
       (setq rtags-install-process (start-process "*RTags install*" (current-buffer) "bash" (concat dir "/install-rtags.sh")))
       (set-process-sentinel rtags-install-process 'rtags-install-process-sentinel)
       (set-process-filter rtags-install-process 'rtags-install-process-filter))))
+
+
+(defun rtags-error-message-default (type)
+  (cond ((eq type 'rtags-socket-file-doesnt-exist) "RTags: %S does not exist")
+        ((eq type 'rtags-cant-find-rc) "RTags: Can't fidn rc")
+        ((eq type 'rtags-cant-connecto-to-server) "RTags: Can't seem to connect to server. Is rdm running?")
+        ((eq type 'rtags-no-file-chosen) "RTags: No file chosen")
+        ((eq type 'rtags-no-file-here) "RTags: No file here")
+        ((eq type 'rtags-line-is-already) "RTags: line is already %s")
+        ((eq type 'rtags-not-sure-what-to-rename) "RTags: Not use what to rename")
+        ((eq type 'rtags-have-to-replace-with-something) "RTags: You have to replace with something")
+        ((eq type 'rtags-cant-open-file) "RTags: Can't open file %s")
+        ((eq type 'rtags-rename-gone-awry) "RTags: Rename gone awry. Refusing to rename %s (%s) to %s")
+        ((eq type 'rtags-tagslist-must-be-run-from-file) "RTags: rtags-tagslist must be run from buffer visiting a file")
+        ((eq type 'rtags-cant-start-process) "RTags: Can't start the process `%s'. Please check the value of the variable `rtags-path'.")
+        ((eq type 'rtags-malines-doesnt-work-with-location-length) "RTags: maxlines doesn't work with location/length")
+        ((eq type 'rtags-buffer-is-not-visiting-a-file) "RTags: Buffer is not visiting a file")
+        ((eq type 'rtags-no-valid-incudes) "RTags: No valid includes found")
+        ((eq type 'rtags-no-appropriate-symbol-that-I-know-of) "RTags: No appropriate symbol here that I know of")
+        ((eq type 'rtags-is-already-implemented) "RTags: %s is already implemented here: %s")
+        ((eq type 'rtags-cant-find-the-range) "RTags: Can't find the range")
+        ((eq type 'rtags-cant-find-the-location-for-this-function) "RTags: Can't find the location for this function")
+        ((eq type 'rtags-cant-find-rc) "RTags: Can't find rc")
+        ((eq type 'rtags-you-need-to-call-rtags-check-includes-from-an-actual-file) "RTags: You need to call rtags-check-includes from an actual file")
+        ((eq type 'rtags-tokens-must-be-run-from-a-buffer-visiting-a-file) "RTags: rtags-tokens must be run from a buffer visiting a file")
+        ((eq type 'rtags-callback-must-be-a-function) "RTags: Callback must be a function")
+        ((eq type 'rtags-cant-find-symbol-here) "RTags: Can't find symbol here")
+        ((eq type 'rtags-howhere-to-install) "RTags: Nowhere to install")))
+
+
 
 (provide 'rtags)
 

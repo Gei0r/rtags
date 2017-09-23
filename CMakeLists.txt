@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8.6)
 project(rtags)
 set(RTAGS_VERSION_MAJOR 2)
-set(RTAGS_VERSION_MINOR 12)
-set(RTAGS_VERSION_DATABASE 117)
+set(RTAGS_VERSION_MINOR 14)
+set(RTAGS_VERSION_DATABASE 118)
 set(RTAGS_VERSION_SOURCES_FILE 12)
 set(RTAGS_VERSION ${RTAGS_VERSION_MAJOR}.${RTAGS_VERSION_MINOR}.${RTAGS_VERSION_DATABASE})
 
@@ -77,5 +77,9 @@ if (RTAGS_ENABLE_DEV_OPTIONS)
 
     include(CPack)
 endif ()
+
+include(CTest)
+
+add_test(SBRootTest perl "${CMAKE_SOURCE_DIR}/tests/sbroot/sbroot_test.pl" "${CMAKE_INSTALL_PREFIX}/bin")
 
 feature_summary(INCLUDE_QUIET_PACKAGES WHAT ALL)
