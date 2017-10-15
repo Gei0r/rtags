@@ -308,7 +308,7 @@ bool Server::initServers()
 
     for (int i=0; i<10; ++i) {
         mUnixServer.reset(new SocketServer);
-        warning() << "listening" << mOptions.socketFile;
+        error() << "listening" << mOptions.socketFile;
         if (mUnixServer->listen(mOptions.socketFile)) {
             break;
         }
