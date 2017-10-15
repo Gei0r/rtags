@@ -137,6 +137,12 @@
          (set var val)
          (rtags-set-suspend-during-compilation-enabled)))
 
+(defcustom rtags-use-mark-as-current-symbol nil
+  "Use mark, when visible as default for rtags-find-symbol."
+  :group 'rtags
+  :type 'boolean
+  :safe 'booleanp)
+
 (rtags-set-suspend-during-compilation-enabled)
 
 (defcustom rtags-use-bookmarks t
@@ -247,7 +253,6 @@ If you're running Emacs in cygwin you might have to set this to nil."
           (run-with-idle-timer rtags-periodic-reparse-timeout t
                                #'rtags-reparse-file-if-needed nil t))))
 
-(defvar rtags-periodic-reparse-timer nil)
 ;;;###autoload
 (defun rtags-set-periodic-reparse-timeout (time)
   "Set `rtags-periodic-reparse-timeout' to TIME."
@@ -490,6 +495,12 @@ return t if RTags is allowed to modify this file."
 
 (defcustom rtags-path nil
   "Path to RTags executables."
+  :group 'rtags
+  :type '(choice (const :tag "Unset" nil) directory)
+  :risky t)
+
+(defcustom rtags-rc-config-path nil
+  "Path to for configuration file for rc."
   :group 'rtags
   :type '(choice (const :tag "Unset" nil) directory)
   :risky t)
@@ -1068,7 +1079,7 @@ to case differences."
 
 (defun rtags-combine-strings (list)
   (mapconcat (lambda (str)
-               (cond ((string-match "\"" str) (concat "\"" (replace-regexp-in-string "\"" "\\\"" str) "\""))
+               (cond ((string-match "\"" str) (concat "\"" (replace-regexp-in-string "\"" "\\\\\"" str) "\""))
                      ((string-match " " str) (concat "\"" str "\""))
                      (t str)))
              list
@@ -1228,6 +1239,8 @@ to only call this when `rtags-socket-file' is defined.
                         (with-current-buffer unsaved
                           (rtags-buffer-size)))
                 arguments))
+        (when rtags-rc-config-path
+          (push (concat "--config=" (expand-file-name rtags-rc-config-path)) arguments))
         (when rtags-completions-enabled
           (push "-b" arguments))
         (when silent
@@ -1396,7 +1409,9 @@ Uses `completing-read' to ask for the project."
       (find-file project))))
 
 (defun rtags-current-symbol (&optional no-symbol-name)
-  (or (and mark-active (buffer-substring-no-properties (point) (mark)))
+  (or (and rtags-use-mark-as-current-symbol
+           mark-active
+           (buffer-substring-no-properties (point) (mark)))
       (and (not no-symbol-name) (rtags-current-symbol-name))
       (thing-at-point 'symbol)))
 
@@ -1408,8 +1423,10 @@ Uses `completing-read' to ask for the project."
                                           (base-classes nil)
                                           (piece nil)
                                           (relative-filenames nil)
-                                          (location (rtags-current-location))
+                                          (location nil)
                                           (silent nil))
+  (unless location
+    (setq location (rtags-current-location)))
   (when location
     (let* ((path (rtags-buffer-file-name))
            (object (with-temp-buffer
@@ -2276,6 +2293,25 @@ See `rtags-current-location' for loc-arg format."
       (run-hooks 'rtags-jump-hook))))
 
 ;;;###autoload
+(defun rtags-location-stack-filter (path/lambda/rx)
+  (interactive "Mregex or path: ")
+  "Filter out undesired entries from rtags-location-stack.
+The argument can either be:
+- An absolute path which gets compared against the path component of each location,
+- A string which is used as a regex to match the whole location
+- A defun which gets passed a single argument of the whole location and which should return non-nil to filter the location out"
+  (let ((old (length rtags-location-stack)))
+    (setq rtags-location-stack (cl-remove-if (cond ((functionp path/lambda/rx) path/lambda/rx)
+                                                   ((file-name-absolute-p path/lambda/rx)
+                                                    (lambda (location)
+                                                      (and (string-match "\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\):?" location)
+                                                           (string= location (match-string-no-properties 1 location)))))
+                                                   (t (lambda (location) (string-match path/lambda/rx location))))
+                                             rtags-location-stack))
+    (when (rtags-called-interactively-p)
+      (message "Removed %d locations" (- old (length rtags-location-stack))))))1
+
+;;;###autoload
 (defun rtags-location-stack-jump (by)
   (interactive)
   (let (;; copy of repeat-on-final-keystroke functionality from repeat.el
@@ -2534,7 +2570,7 @@ If called with prefix, open first match in other window"
                  (with-temp-buffer
                    (insert (car results))
                    (goto-char (point-min))
-                   (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-symbol-at-point)))
+                   (rtags-handle-results-buffer tagname nil nil fn otherwindow 'find-symbol-at-point t)))
                 (t
                  (rtags-delete-rtags-windows)
                  (with-current-buffer (rtags-get-buffer)
@@ -2959,13 +2995,25 @@ This includes both declarations and definitions."
 
 (defvar rtags-last-check-style nil)
 
-(defun rtags-parse-check-style (checkstyle)
+(defun rtags-visible-buffers ()
+  (let ((ret))
+    (dolist (frame (frame-list))
+      (dolist (window (window-list frame))
+        (let* ((buf (window-buffer window))
+               (name (and buf (rtags-trampify (buffer-file-name buf)))))
+          (when name
+            (push (cons name buf) ret)))))
+    ret))
+
+(defun rtags-parse-check-style (buffers checkstyle)
   (when checkstyle
     (setq rtags-last-check-style checkstyle))
   (dolist (cur checkstyle)
     (let* ((file (rtags-trampify (car cur)))
-           (diags (cdr cur))
-           (buf (find-buffer-visiting file)))
+           (buf (cdr (assoc file buffers)))
+           (diags (cdr cur)))
+      ;; (unless buf
+      ;;   (message "ditched %d diags for %s" (length diags) file))
       (when buf
         (with-current-buffer buf
           (rtags-overlays-remove)
@@ -2987,37 +3035,36 @@ This includes both declarations and definitions."
 (defvar rtags-diagnostics-errors nil
   "List of diagnostics errors.")
 
-(defun rtags-parse-diagnostics (&optional buffer)
+(defun rtags-parse-diagnostics ()
   (save-excursion
-    (with-current-buffer (or buffer (rtags-get-buffer-create-no-undo rtags-diagnostics-raw-buffer-name))
-      (while (and (goto-char (point-min))
-                  (search-forward "\n" (point-max) t))
-        (let* ((pos (1- (point)))
-               (data (and (> (1- pos) (point-min))
-                          (save-restriction
-                            (narrow-to-region (point-min) pos)
-                            (save-excursion
-                              (goto-char (point-min))
-                              (unless (looking-at "Can't seem to connect to server")
-                                (condition-case nil
-                                    (eval (read (current-buffer)))
-                                  (error
-                                   (message "****** Got Diagnostics Error ******")
-                                   (setq rtags-diagnostics-errors
-                                         (append rtags-diagnostics-errors
-                                                 (list (buffer-substring-no-properties (point-min) (point-max)))))))))))))
-          (cond ((not (listp data)))
-                ((eq (car data) 'checkstyle)
-                 (when rtags-spellcheck-enabled
-                   (rtags-parse-check-style (cdr data))))
-                ((eq (car data) 'progress)
-                 (setq rtags-last-index (nth 1 data)
-                       rtags-last-total (nth 2 data)
-                       rtags-remaining-jobs (nth 3 data)))
-                (t))
-          (run-hooks 'rtags-diagnostics-hook)
-          (forward-char 1)
-          (delete-region (point-min) (point)))))))
+    (while (and (goto-char (point-min))
+                (search-forward "\n" (point-max) t))
+      (let* ((pos (1- (point)))
+             (data (and (> (1- pos) (point-min))
+                        (save-restriction
+                          (narrow-to-region (point-min) pos)
+                          (save-excursion
+                            (goto-char (point-min))
+                            (unless (looking-at "Can't seem to connect to server")
+                              (condition-case nil
+                                  (eval (read (current-buffer)))
+                                (error
+                                 (message "****** Got Diagnostics Error ******")
+                                 (setq rtags-diagnostics-errors
+                                       (append rtags-diagnostics-errors
+                                               (list (buffer-substring-no-properties (point-min) (point-max)))))))))))))
+        (cond ((not (listp data)))
+              ((eq (car data) 'checkstyle)
+               (when rtags-spellcheck-enabled
+                 (rtags-parse-check-style (rtags-visible-buffers) (cdr data))))
+              ((eq (car data) 'progress)
+               (setq rtags-last-index (nth 1 data)
+                     rtags-last-total (nth 2 data)
+                     rtags-remaining-jobs (nth 3 data)))
+              (t))
+        (run-hooks 'rtags-diagnostics-hook)
+        (forward-char 1)
+        (delete-region (point-min) (point))))))
 
 (defun rtags-check-overlay (overlay)
   (when (and (overlayp overlay)
@@ -3173,6 +3220,8 @@ This includes both declarations and definitions."
 ;;;###autoload
 (defun rtags-fix-fixit-at-point ()
   (interactive)
+  (unless (rtags-has-diagnostics)
+    (error "rtags-fix-fixit-at-point requires diagnostics to be running. Consider setting rtags-autostart-diagnostics to t"))
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
     (let ((current-overlays (overlays-at (point))))
       (while (and current-overlays (not (rtags-fix-fixit-overlay (car current-overlays))))
@@ -3312,9 +3361,8 @@ This includes both declarations and definitions."
   ;;   (insert output))
   (with-current-buffer (rtags-get-buffer-create-no-undo rtags-diagnostics-raw-buffer-name)
     (goto-char (point-max))
-    (insert output))
-  ;; only try to process diagnostics if we detect an end condition
-  (rtags-parse-diagnostics))
+    (insert output)
+    (rtags-parse-diagnostics)))
 
 (defvar rtags-diagnostics-mode-map (make-sparse-keymap))
 (define-key rtags-diagnostics-mode-map (kbd "q") 'rtags-call-bury-or-delete)
@@ -3475,7 +3523,7 @@ This includes both declarations and definitions."
 (make-variable-buffer-local 'rtags-results-buffer-type)
 (put 'rtags-results-buffer-type 'permanent-local t)
 
-(defun rtags-handle-results-buffer (&optional token noautojump quiet path other-window type)
+(defun rtags-handle-results-buffer (&optional token noautojump quiet path other-window type nobookmarks)
   "Handle results from RTags. Should be called with the results buffer
 as current.
 
@@ -3483,7 +3531,8 @@ The option OTHER-WINDOW is only applicable if RTags is configured not to
 show the results immediately. If non-nil, show the first match in the
 other window instead of the current one."
   (setq rtags-results-buffer-type type)
-  (rtags-reset-bookmarks)
+  (unless nobookmarks
+    (rtags-reset-bookmarks))
   (set-text-properties (point-min) (point-max) nil)
   (when path
     (setq rtags-current-file path))

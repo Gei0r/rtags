@@ -190,10 +190,12 @@ bool Server::init(const Options &options)
     {
         Log l(LogLevel::Error, LogOutput::StdOut|LogOutput::TrailingNewLine);
         l << "Running with" << mOptions.jobCount << "jobs, using args:"
-          << String::join(mOptions.defaultArguments, ' ') << '\n';
-        l << "Includepaths:";
-        for (const auto &inc : mOptions.includePaths)
-            l << inc.toString();
+          << String::join(mOptions.defaultArguments, ' ');
+        if (!mOptions.includePaths.isEmpty()) {
+            l << "\nIncludepaths:";
+            for (const auto &inc : mOptions.includePaths)
+                l << inc.toString();
+        }
     }
 
     if (mOptions.options & ClearProjects) {
@@ -337,7 +339,9 @@ std::shared_ptr<Project> Server::addProject(const Path &path)
     std::shared_ptr<Project> &project = mProjects[path];
     if (!project) {
         project.reset(new Project(path));
-        project->init();
+        if (!project->init()) {
+            Path::rmdir(project->projectDataDir());
+        }
     }
     return project;
 }
@@ -507,7 +511,16 @@ bool Server::loadCompileCommands(IndexParseData &data, const Path &compileComman
         CXCompileCommand cmd = clang_CompileCommands_getCommand(cmds, i);
         String args;
         CXString str = clang_CompileCommand_getDirectory(cmd);
-        const Path compileDir = clang_getCString(str);
+        Path compileDir = clang_getCString(str);
+        if (!compileDir.isAbsolute() || !compileDir.exists()) {
+            bool resolveOk = false;
+            debug() << "compileDir doesn't exist: " << compileDir;
+            Path resolvedCompileDir = compileDir.resolved(Path::MakeAbsolute, data.project, &resolveOk);
+            if (resolveOk) {
+                compileDir = resolvedCompileDir;
+                debug() << "    resolved to: " << compileDir;
+            }
+        }
         clang_disposeString(str);
         const unsigned int num = clang_CompileCommand_getNumArgs(cmd);
         for (unsigned int j = 0; j < num; ++j) {
@@ -634,10 +647,12 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, co
         conn->finish(ret ? 0 : 1);
     if (ret) {
         auto proj = addProject(data.project);
-        assert(proj);
-        proj->processParseData(std::move(data));
-        if (!currentProject())
-            setCurrentProject(proj);
+        if (proj) {
+            assert(proj);
+            proj->processParseData(std::move(data));
+            if (!currentProject())
+                setCurrentProject(proj);
+        }
     }
 }
 
@@ -1451,6 +1466,7 @@ void Server::setCurrentProject(const std::shared_ptr<Project> &project)
             }
             if (!(mOptions.options & NoFileManager))
                 project->fileManager()->load(FileManager::Asynchronous);
+            mJobScheduler->sort();
             // project->diagnoseAll();
         } else {
             Path::rm(mOptions.dataDir + ".currentProject");
@@ -2099,8 +2115,10 @@ bool Server::load()
         }
         for (auto &s : projects) {
             auto p = addProject(s.first);
-            p->processParseData(std::move(s.second));
-            p->save();
+            if (p) {
+                p->processParseData(std::move(s.second));
+                p->save();
+            }
         }
     }
     return true;

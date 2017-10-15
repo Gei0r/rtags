@@ -14,6 +14,7 @@
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "CompletionThread.h"
+#include "IndexDataMessage.h"
 #include "Project.h"
 
 #include "rct/StopWatch.h"
@@ -255,7 +256,7 @@ void CompletionThread::process(Request *request)
 
         cache->translationUnit = RTags::TranslationUnit::create(sourceFile,
                                                                 request->source.toCommandLine(Source::Default|Source::ExcludeDefaultArguments),
-                                                                &unsaved, request->unsaved.size() ? 1 : 0, flags);
+                                                                &unsaved, request->unsaved.size() ? 1 : 0, flags, true);
         // error() << "PARSING" << clangLine;
         parseTime = cache->parseTime = sw.elapsed();
         // with clang 3.8 it definitely seems like we have to reparse once to
@@ -307,7 +308,7 @@ void CompletionThread::process(Request *request)
                                                           request->location.line(), request->location.column() - request->prefix.length(),
                                                           &unsaved, unsaved.Length ? 1 : 0, completionFlags);
     completeTime = cache->codeCompleteTime = sw.restart();
-    LOG() << "Generated completions for" << request->location << (results ? "successfully" : "unsuccessfully") << "in" << completeTime << "ms";
+    LOG() << "Generated" << (results ? results->NumResults : 0) << "completions for" << request->location << (results ? "successfully" : "unsuccessfully") << "in" << completeTime << "ms";
 
     ++cache->completions;
     if (results) {
@@ -401,6 +402,7 @@ void CompletionThread::process(Request *request)
             error() << "No completion results available" << request->location;
         }
 
+        processDiagnostics(request, results, cache->translationUnit->unit);
         clang_disposeCodeCompleteResults(results);
     }
 }
@@ -671,4 +673,75 @@ Source CompletionThread::findSource(const Set<uint32_t> &deps) const
         }
     }
     return Source();
+}
+
+class CompletionDiagnostics : public RTags::DiagnosticsProvider
+{
+public:
+    CompletionDiagnostics(uint32_t sourceFileId, uint32_t completionFileId, CXCodeCompleteResults *results, CXTranslationUnit unit)
+        : mSourceFileId(sourceFileId), mResults(results), mUnit(unit)
+    {
+        mIndexDataMessage.files()[completionFileId] = IndexDataMessage::Visited;
+    }
+
+    virtual size_t unitCount() const override
+    {
+        return 1;
+    }
+
+    virtual size_t diagnosticCount(size_t) const override
+    {
+        return clang_codeCompleteGetNumDiagnostics(mResults);
+    }
+
+    virtual CXDiagnostic diagnostic(size_t, size_t idx) const override
+    {
+        return clang_codeCompleteGetDiagnostic(mResults, idx);
+    }
+
+    virtual Location createLocation(const Path &file, unsigned int line, unsigned int col, bool *blocked = 0) override
+    {
+        if (blocked)
+            *blocked = false;
+        return Location(Location::insertFile(file), line, col);
+    }
+
+    virtual uint32_t sourceFileId() const override
+    {
+        return mSourceFileId;
+    }
+
+    virtual IndexDataMessage &indexDataMessage() override
+    {
+        return mIndexDataMessage;
+    }
+
+    virtual CXTranslationUnit unit(size_t) const override
+    {
+        return mUnit;
+    }
+
+    const uint32_t mSourceFileId;
+    CXCodeCompleteResults *const mResults;
+    CXTranslationUnit const mUnit;
+    IndexDataMessage mIndexDataMessage;
+};
+
+void CompletionThread::processDiagnostics(const Request *request, CXCodeCompleteResults *results, CXTranslationUnit unit)
+{
+    assert(request);
+    std::shared_ptr<Project> project = Server::instance()->currentProject();
+    if (!project) {
+        return;
+    }
+    const uint32_t sourceFileId = request->source.fileId;
+    if (!project->hasSource(sourceFileId)) {
+        return;
+    }
+    LOG() << "processing diagnostics" << clang_codeCompleteGetNumDiagnostics(results)
+          << clang_getNumDiagnostics(unit) << request->location << Location::path(request->source.fileId);
+    CompletionDiagnostics diag(sourceFileId, request->location.fileId(), results, unit);
+    diag.diagnose();
+    // error() << "got diagnostics" << diag.indexDataMessage().diagnostics().size();
+    project->updateDiagnostics(sourceFileId, diag.indexDataMessage().diagnostics());
 }

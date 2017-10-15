@@ -97,6 +97,9 @@ int IndexerJob::priority() const
                         ret += 2;
                 }
             }
+
+            if (p && server->currentProject() == p)
+                ++ret;
         }
         mCachedPriority = ret;
     }

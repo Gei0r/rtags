@@ -38,7 +38,9 @@ if [ ! -d "$REPO" ]; then
 else
     cd "$REPO"
     git checkout -f master
-    git pull --autostash --recurse-submodules || exit 1
+    git submodule foreach git fetch --tags
+    git pull --rebase --autostash --recurse-submodules || exit 1
+    git submodule update --recursive
 fi
 
 branch_name="$(git symbolic-ref HEAD 2>/dev/null)" || branch_name="(unnamed branch)"     # detached HEAD
@@ -59,7 +61,7 @@ if [ ! -d "$RELEASES_REPO" ]; then
     cd "$RELEASES_REPO"
 else
     cd "$RELEASES_REPO"
-    git pull --autostash || exit 1
+    git pull --rebase --autostash || exit 1
 fi
 
 if ! git branch | grep --quiet "^\* *gh-pages$"; then
@@ -69,12 +71,13 @@ fi
 
 rm -rf .git/hooks/*
 
-cmake "$REPO" $CMAKE_ARGS >/dev/null 2>&1
-make package_source >/dev/null
-cmake "$REPO" $CMAKE_ARGS -DCPACK_GENERATOR=TBZ2 >/dev/null 2>&1
-make package_source >/dev/null
+cmake "$REPO" $CMAKE_ARGS >/dev/null || exit 1
+make package_source >/dev/null || exit 1
+cmake "$REPO" $CMAKE_ARGS -DCPACK_GENERATOR=TBZ2 >/dev/null 2>&1 || exit 1
+make package_source >/dev/null || exit 1
 echo "$commit" > commit
 git add *.tar.gz *.tar.bz2 commit >/dev/null
 git commit --amend -m "Release for $commit" >/dev/null
 git push -f git@github.com:Andersbakken/rtags-releases.git gh-pages >/dev/null
+git reset origin/gh-pages --hard
 git clean -xfd

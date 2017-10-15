@@ -479,6 +479,7 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             return { String(), CommandLineParser::Parse_Ok }; }
         case SocketFile: {
             mSocketFile = std::move(value);
+            mSocketFile.resolve();
             break; }
         case SocketAddress: {
             mTcpHost = std::move(value);
