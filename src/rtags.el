@@ -1055,6 +1055,7 @@ to case differences."
           (rtags-select))))))
 
 (defun rtags-executable-find (exe)
+  (when (string= system-type "windows-nt") (setq exe (concat exe ".exe")))
   (cond ((and rtags-tramp-enabled (tramp-tramp-file-p default-directory)) exe)
         ;; for tramp let's rely on `tramp-remote-path`, so if You have some *debug*
         ;; directory to store RTags binaries, just put it to `tramp-remote-path`
@@ -2204,10 +2205,15 @@ instead of file from `current-buffer'.
         (rtags-switch-to-buffer file-or-buffer other-window)
         (message "No buffer named \"%s\"" file-or-buffer)))))
 
+(defun rtags-path-is-absolute (path)
+  (if(string= system-type "windows-nt")
+     (string-match "^[a-zA-Z]:/" path)
+     (string-match "^/" path)))
+
 (defun rtags-absolutify (location &optional skip-trampification)
   (when location
     (save-match-data
-      (when (not (string-match "^/" location))
+      (when (not (rtags-path-is-absolute location))
         (unless rtags-current-project
           (let ((file rtags-current-file)
                 (project))
@@ -2218,7 +2224,7 @@ instead of file from `current-buffer'.
             (setq rtags-current-project project)))
         (when rtags-current-project
           (setq location (concat rtags-current-project location))))
-      (unless (string-match "^/" location)
+      (unless (rtags-path-is-absolute location)
         (with-temp-buffer
           (rtags-call-rc :path rtags-current-file "--current-project")
           (setq location (concat (buffer-substring-no-properties (point-min) (1- (point-max))) location)))))
