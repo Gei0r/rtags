@@ -12,6 +12,7 @@ import sys
 import platform
 import json
 import subprocess as sp
+import re
 from hamcrest import assert_that, has_length, has_item
 
 sys.dont_write_bytecode = True
@@ -27,16 +28,18 @@ if platform.system() == 'Windows':
 
 
 def create_compile_commands(test_dir, test_files):
-    return [dict(directory=os.path.abspath(test_dir), file=test_file,
-                 command=(clang + " -std=c++11 -I. -c %s") % os.path.join(test_dir, test_file))
-            for test_file in (src_file for src_file in test_files
-                              if src_file.endswith('.cpp'))]
+    ret = [dict(directory=os.path.abspath(test_dir), file=test_file,
+                command=(clang + " -std=c++11 -I. -c %s") % os.path.join(test_dir, test_file))
+           for test_file in (src_file for src_file in test_files
+                             if src_file.endswith('.cpp'))]
+    print "Compile commands: [%s]" % ', '.join(map(str, ret))
+    return ret
 
 
 def read_locations(project_dir, lines):
     # print "proj_dir=" + project_dir + " lines=" + lines
     lines = [line.split(":") for line in lines.split("\n") if len(line) > 0]
-    if platform.system() == 'Windows':
+    if platform.system() == 'Windows' and re.match('^[a-zA-Z]:', line):
         return [Location(line[0]+':'+line[1], line[2], line[3]) for line in lines]
     else:
         return [Location(os.path.join(project_dir, line[0]), line[1], line[2]) for line in lines]
@@ -44,7 +47,7 @@ def read_locations(project_dir, lines):
 
 class Location:
     def __init__(self, file, line, col):
-        # print "init: " + "file=" + file + " line=" + line + " col=" + col
+        print "init: " + "file=" + file + " line=" + line + " col=" + col
         self.file, self.line, self.col = str(file), int(line), int(col)
 
         if platform.system() == 'Windows':
@@ -52,7 +55,7 @@ class Location:
 
     @classmethod
     def from_str(cls, s):
-        if platform.system() == 'Windows':
+        if platform.system() == 'Windows' and re.match('^[a-zA-Z]:', s):
             elems = s.split(':')
             return cls(elems[0]+':'+elems[1], elems[2], elems[3])
         else:
@@ -73,6 +76,7 @@ class Location:
 
 def run_rc(args):
     args = ["rc", "--socket-file=" + socket_file] + args
+    print "Running rc: [%s]" % ', '.join(map(str, args))
     return sp.check_output(args)
 
 
