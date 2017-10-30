@@ -9,6 +9,7 @@
 #
 import os
 import sys
+import platform
 import json
 import subprocess as sp
 from hamcrest import assert_that, has_length, has_item
@@ -16,27 +17,46 @@ from hamcrest import assert_that, has_length, has_item
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 socket_file = "/var/tmp/rdm_dev"
+clang = "clang++"
+rdm_temp_file = "~/.rtags_dev"
+
+if platform.system() == 'Windows':
+    socket_file = os.path.expanduser("~") + "/rdm"
+    clang = "clang++.exe"
+    rdm_temp_file = os.path.expanduser("~") + "/.rtags_dev"
 
 
 def create_compile_commands(test_dir, test_files):
     return [dict(directory=os.path.abspath(test_dir), file=test_file,
-                 command="clang++ -std=c++11 -I. -c %s" % os.path.join(test_dir, test_file))
+                 command=(clang + " -std=c++11 -I. -c %s") % os.path.join(test_dir, test_file))
             for test_file in (src_file for src_file in test_files
                               if src_file.endswith('.cpp'))]
 
 
 def read_locations(project_dir, lines):
+    # print "proj_dir=" + project_dir + " lines=" + lines
     lines = [line.split(":") for line in lines.split("\n") if len(line) > 0]
-    return [Location(os.path.join(project_dir, line[0]), line[1], line[2]) for line in lines]
+    if platform.system() == 'Windows':
+        return [Location(line[0]+':'+line[1], line[2], line[3]) for line in lines]
+    else:
+        return [Location(os.path.join(project_dir, line[0]), line[1], line[2]) for line in lines]
 
 
 class Location:
     def __init__(self, file, line, col):
+        # print "init: " + "file=" + file + " line=" + line + " col=" + col
         self.file, self.line, self.col = str(file), int(line), int(col)
+
+        if platform.system() == 'Windows':
+            self.file = self.file.replace("\\", "/")
 
     @classmethod
     def from_str(cls, s):
-        return cls(*s.split(":")[0:3])
+        if platform.system() == 'Windows':
+            elems = s.split(':')
+            return cls(elems[0]+':'+elems[1], elems[2], elems[3])
+        else:
+            return cls(*s.split(":")[0:3])
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -77,7 +97,7 @@ def run(rdm, project_dir, test_dir, test_files, rc_command, expected_locations):
         assert_that(actual_locations, has_item(expected_location))
 
 def setup_rdm(test_dir, test_files):
-    rdm = sp.Popen(["rdm", "-n", socket_file, "-d", "~/.rtags_dev", "-o", "-B", "-C", "--log-flush" ],
+    rdm = sp.Popen(["rdm", "-n", socket_file, "-d", rdm_temp_file, "-o", "-B", "-C", "--log-flush" ],
                    stdout=sp.PIPE, stderr=sp.STDOUT)
     wait_for(rdm, "Includepaths")
 
