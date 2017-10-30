@@ -18,18 +18,16 @@ from hamcrest import assert_that, has_length, has_item
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 socket_file = "/var/tmp/rdm_dev"
-clang = "clang++"
 rdm_temp_file = "~/.rtags_dev"
 
 if platform.system() == 'Windows':
-    socket_file = os.path.expanduser("~") + "/rdm"
-    clang = "clang++.exe"
+    socket_file = os.path.expanduser("~") + "/.rdm"
     rdm_temp_file = os.path.expanduser("~") + "/.rtags_dev"
 
 
 def create_compile_commands(test_dir, test_files):
     ret = [dict(directory=os.path.abspath(test_dir), file=test_file,
-                command=(clang + " -std=c++11 -I. -c %s") % os.path.join(test_dir, test_file))
+                command=("clang++ -std=c++11 -I. -c %s") % os.path.join(test_dir, test_file))
            for test_file in (src_file for src_file in test_files
                              if src_file.endswith('.cpp'))]
     print "Compile commands: [%s]" % ', '.join(map(str, ret))

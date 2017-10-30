@@ -395,6 +395,21 @@ static std::pair<Path, bool> resolveCompiler(const Path &unresolved,
         }
     }
 
+    // error() << "resolved: <" << compiler.first.c_str() << "," << compiler.second << ">";
+
+#ifdef _WIN32
+    // on windows, we also try to add ".exe" to the compiler.
+    if(!unresolved.endsWith(String(".exe"), String::CaseInsensitive))
+    {
+        const Path unresolvedWithExe = unresolved + ".exe";
+
+        // recursive call, but there can only be one level of recursion,
+        // because we manually added ".exe" before.
+        compiler = resolveCompiler(unresolvedWithExe, cwd,
+                                   environment, pathEnvironment, cache);
+    }
+#endif
+
     return compiler;
 }
 
