@@ -31,6 +31,7 @@
 #ifdef OS_Darwin
 #include <mach-o/dyld.h>
 #endif
+#include <regex>
 
 #include "IndexDataMessage.h"
 #include "LogOutputMessage.h"
@@ -74,6 +75,12 @@ void decodePath(Path &path)
 {
     if (Sandbox::decode(path))
         return;
+
+    debug() << "decodePath(" << path << ")";
+#ifdef _WIN32
+    path = std::regex_replace(path.c_str(), std::regex("([A-Z])_colon_[/_]"),
+                              std::string("$1:/"));
+#endif
 
     int i = 0;
     int size = path.size();

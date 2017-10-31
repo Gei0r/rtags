@@ -795,6 +795,7 @@ int main(int argc, char** argv)
                 logLevel.toInt(), logFile.constData(), logFlags.toString().constData());
         return 1;
     }
+    debug() << "Logging initialized";
 
 #ifdef RTAGS_HAS_LAUNCHD
     if (serverOpts.options & Server::Launchd) {
@@ -817,6 +818,7 @@ int main(int argc, char** argv)
         ::error() << "Could not initialize event loop!";
         return 1;
     }
+    debug() << "Event loop initialized.";
 
     auto server = std::make_shared<Server>();
     if (!serverOpts.tests.isEmpty()) {
@@ -871,10 +873,12 @@ int main(int argc, char** argv)
     }
 #endif
 
+    debug() << "Initializing server";
     if (!server->init(serverOpts)) {
         cleanupLogging();
         return 1;
     }
+    debug() << "Server initialized";
 
     if (!serverOpts.tests.isEmpty()) {
         return server->runTests() ? 0 : 1;
@@ -882,7 +886,9 @@ int main(int argc, char** argv)
 
     loop->setInactivityTimeout(inactivityTimeout * 1000);
 
+    debug() << "About to execute event loop...";
     loop->exec();
+    debug() << "event loop finished";
     const int ret = server->exitCode();
     server.reset();
     cleanupLogging();

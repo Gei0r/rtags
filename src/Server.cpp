@@ -336,8 +336,10 @@ bool Server::initServers()
 
 std::shared_ptr<Project> Server::addProject(const Path &path)
 {
+    debug() << "Server::addProject(" << path << ")";
     std::shared_ptr<Project> &project = mProjects[path];
     if (!project) {
+        debug() << "Init new project";
         project.reset(new Project(path));
         if (!project->init()) {
             Path::rmdir(project->projectDataDir());
@@ -2020,7 +2022,9 @@ void Server::handleVisitFileMessage(const std::shared_ptr<VisitFileMessage> &mes
 
 bool Server::load()
 {
-    DataFile fileIdsFile(mOptions.dataDir + "fileids", RTags::DatabaseVersion);
+    const Path fileIdsFilename = mOptions.dataDir + "fileids";
+    debug() << "Opening fileids file" << fileIdsFilename;
+    DataFile fileIdsFile(fileIdsFilename, RTags::DatabaseVersion);
     if (fileIdsFile.open(DataFile::Read)) {
         Flags<FileIdsFileFlag> flags;
         fileIdsFile >> flags;
@@ -2046,13 +2050,16 @@ bool Server::load()
             return true;
         }
         List<Path> projects = mOptions.dataDir.files(Path::Directory);
+        debug() << "loading" << projects.size() << "projects...";
         for (size_t i=0; i<projects.size(); ++i) {
             const Path &file = projects.at(i);
+            debug() << "Loading project" << file;
             Path filePath = file.mid(mOptions.dataDir.size());
             Path old = filePath;
             if (filePath.endsWith('/'))
                 filePath.chop(1);
             RTags::decodePath(filePath);
+            debug() << "Project is really " << filePath;
             if (filePath.isDir()) {
                 bool remove = false;
                 if (FILE *f = fopen((file + "/project").constData(), "r")) {
@@ -2085,8 +2092,10 @@ bool Server::load()
         if (!fileIdsFile.error().isEmpty()) {
             error("Can't restore file ids: %s", fileIdsFile.error().constData());
         }
+        debug() << "fileids file is empty";
         Hash<Path, IndexParseData> projects;
         mOptions.dataDir.visit([&projects](const Path &path) {
+                debug() << "checking path" << path;
                 if (path.isDir()) {
                     const char *fn = path.fileName();
                     if (*fn == '_' || !strncmp(fn, "$_", 2))
@@ -2095,7 +2104,10 @@ bool Server::load()
                     Path filePath = path.parentDir().fileName();
                     if (filePath.endsWith("/"))
                         filePath.chop(1);
+
+                    debug() << "Checking path" << filePath;
                     RTags::decodePath(filePath);
+                    debug() << "path is really" << filePath;
 
                     String err;
                     IndexParseData data;

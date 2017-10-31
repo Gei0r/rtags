@@ -300,8 +300,11 @@ static inline bool hasSourceDependency(const DependencyNode *node, const std::sh
 
 bool Project::readSources(const Path &path, IndexParseData &data, String *err)
 {
+    debug() << "Project::readSources()";
+    debug() << "Opening project data file" << path;
     DataFile file(path, RTags::SourcesFileVersion);
     if (!file.open(DataFile::Read)) {
+        debug() << "removing" << path;
         Path::rm(path);
         if (err && !file.error().isEmpty())
             *err = file.error();
@@ -309,6 +312,11 @@ bool Project::readSources(const Path &path, IndexParseData &data, String *err)
     }
 
     file >> data;
+
+    for(auto &entry : data.sources)
+    {
+        debug() << entry.first << " - " << entry.second;
+    }
 
     if (Sandbox::hasRoot()) {
         forEachSource(data, [](Source &source) {
@@ -323,8 +331,11 @@ bool Project::readSources(const Path &path, IndexParseData &data, String *err)
 
 bool Project::init()
 {
+    debug() << "Project::init()";
     const JobScheduler::JobScope scope(Server::instance()->jobScheduler());
     const Server::Options &options = Server::instance()->options();
+    debug() << "FileSystemWatch:" << (!(options.options & Server::NoFileSystemWatch))
+            << "FileManager:" << (!(options.options & Server::NoFileManager));
     if (!(options.options & Server::NoFileSystemWatch)) {
         mWatcher.modified().connect(std::bind(&Project::onFileModified, this, std::placeholders::_1));
         mWatcher.added().connect(std::bind(&Project::onFileAdded, this, std::placeholders::_1));
@@ -1522,6 +1533,7 @@ List<RTags::SortedSymbol> Project::sort(const Set<Symbol> &symbols, Flags<QueryM
 
 void Project::watch(const Path &dir, WatchMode mode)
 {
+    debug() << "Project::watch(" << dir << ")";
     if (!dir.isEmpty()) {
         const auto opts = Server::instance()->options().options;
         if (opts & Server::WatchSourcesOnly && mode != Watch_SourceFile)
